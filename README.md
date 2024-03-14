@@ -10,7 +10,16 @@ We leverage the multitasking ability of T5Chem, and we added the prefixes "acidi
 
 Similarly, we reused the prefixes "Product" and "Reactants" from the original T5Chem to train our seq2seq model. Here, the "Product" prefix works for wanting to predict the area of deprotonation of the molecule, and the "Reactants" prefix works for predicting the protonation of the molecule. 
 
-Lastly, our microscopic p<i>K</i><sub><i>a</i></sub> model uses an input of a molecule and its deprotonated or protonated joined together by the delimiter ">>". This model also is unique in a case where the user does not know the area of ionization, then they can use the seq2seq model output and join it with their seq2seq model input and predict the microscopic p<i>K</i><sub><i>a</i></sub>. The image below depicts the different prefixes and an example of inputs depending on the model: (de)protonation prediction (green), mircoscopic p<i>K</i><sub><i>a</i></sub> prediction, and macrosopic p<i>K</i><sub><i>a</i></sub> prediction. 
+Lastly, our microscopic p<i>K</i><sub><i>a</i></sub> model uses an input of a molecule and its deprotonated or protonated joined together by the delimiter ">>". This model also is unique in a case where the user does not know the area of ionization, then they can use the seq2seq model output and join it with their seq2seq model input and predict the microscopic p<i>K</i><sub><i>a</i></sub>. The image below depicts the different prefixes and an example of inputs depending on the model: (de)protonation prediction (green), mircoscopic p<i>K</i><sub><i>a</i></sub> prediction (pink), and macrosopic p<i>K</i><sub><i>a</i></sub> prediction (yellow and blue). 
+
 <img width="552" alt="Screenshot 2024-03-13 at 5 33 37 PM" src="https://github.com/charlotteinfante/t5chem_pKa/assets/96793416/3877e501-be9b-497d-9225-f632cd2f74c3">
 
+## Running a prediction
+Unzip models
+```bash 
+unzip models.zip
+```
 
+To run a (de)protonation prediction using the seq2seq model
+```bash
+python 
