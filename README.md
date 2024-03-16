@@ -17,4 +17,8 @@ Lastly, our microscopic p<i>K</i><sub><i>a</i></sub> model uses an input of a mo
 ## Running a prediction
 To run a (de)protonation prediction using the seq2seq model
 ```bash
-python 
+python __main__.py predict --data_dir /scratch/cii2002/t5chem_new/t5chem_prop/pka/data/SAMPL6/seq2seq/mixed --model_dir models/seq2seq/ --prediction models/sampl6.csv
+```
+To run a microscopic p<i>K</i><sub><i>a</i></sub> prediction using the ensemble model
+```bash
+python ensemble_prediction.py --scaler_random data/TRAINING/SPLIT/ensemble/pairs/ --scaler_scaffold data/TRAINING/SPLIT/scaffold/ensemble/pairs/ --data_dir 
