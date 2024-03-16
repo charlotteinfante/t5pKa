@@ -29,7 +29,7 @@ python ensemble_prediction.py --scaler_random /scratch/cii2002/t5chem_new/t5chem
 ```
 To run a macroscopic p<i>K</i><sub><i>a</i></sub> prediction using the ensemble model
 ```bash
-python ensemble_prediction.py --scaler_random /scratch/cii2002/t5chem_new/t5chem_prop/data/TRAINING/SPLIT/ensemble/acidic_basic/ --scaler_scaffold /scratch/cii2002/t5chem_new/t5chem_prop/data/TRAINING/SPLIT/scaffold/ensemble/acidic_basic --data_dir /scratch/cii2002/t5chem_new/t5chem_prop/pka/data/SAMPL6/macropka/regression_monoprotic/acidic_basic --model_dir /scratch/cii2002/t5chem_new/t5chem_pKa/models/macroscopic/ --prediction models/macroscopic/sampl6.csv
+python ensemble_prediction.py --scaler_random /scratch/cii2002/t5chem_new/t5chem_prop/data/TRAINING/SPLIT/ensemble/acidic_basic/ --scaler_scaffold /scratch/cii2002/t5chem_new/t5chem_prop/data/TRAINING/SPLIT/scaffold/ensemble/acidic_basic/ --data_dir /scratch/cii2002/t5chem_new/t5chem_prop/pka/data/SAMPL6/macropka/regression_monoprotic/acidic_basic/ --model_dir /scratch/cii2002/t5chem_new/t5chem_pKa/models/macroscopic/ --prediction models/macroscopic/sampl6.csv
 
 ```
 
