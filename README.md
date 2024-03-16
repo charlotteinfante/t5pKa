@@ -34,3 +34,4 @@ python ensemble_prediction.py --scaler_random /scratch/cii2002/t5chem_new/t5chem
 ```
 
 ## Training the models
+Calculated p<i>K</i><sub><i>a</i></sub> datasets using Epik and pKasolver scripts (used for the seq2seq and micropscopic models)
