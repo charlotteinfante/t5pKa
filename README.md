@@ -14,11 +14,23 @@ Lastly, our microscopic p<i>K</i><sub><i>a</i></sub> model uses an input of a mo
 
 <img width="552" alt="Screenshot 2024-03-13 at 5 33 37 PM" src="https://github.com/charlotteinfante/t5chem_pKa/assets/96793416/3877e501-be9b-497d-9225-f632cd2f74c3">
 
+## Enviroment / Set up
+
 ## Running a prediction
+### To be edited still (usable only for Song and others with access to my folders)
 To run a (de)protonation prediction using the seq2seq model
 ```bash
-python __main__.py predict --data_dir /scratch/cii2002/t5chem_new/t5chem_prop/pka/data/SAMPL6/seq2seq/mixed --model_dir models/seq2seq/ --prediction models/sampl6.csv
+python __main__.py predict --data_dir /scratch/cii2002/t5chem_new/t5chem_prop/pka/data/SAMPL6/seq2seq/mixed --model_dir /scratch/cii2002/t5chem_new/t5chem_pKa/models/seq2seq --prediction models/seq2seq/sampl6.csv
 ```
 To run a microscopic p<i>K</i><sub><i>a</i></sub> prediction using the ensemble model
 ```bash
-python ensemble_prediction.py --scaler_random data/TRAINING/SPLIT/ensemble/pairs/ --scaler_scaffold data/TRAINING/SPLIT/scaffold/ensemble/pairs/ --data_dir 
+python ensemble_prediction.py --scaler_random /scratch/cii2002/t5chem_new/t5chem_prop/data/TRAINING/SPLIT/ensemble/pairs/mix/no_labels --scaler_scaffold /scratch/cii2002/t5chem_new/t5chem_prop/data/TRAINING/SPLIT/scaffold/ensemble/pairs/mix/no_labels/ --data_dir /scratch/cii2002/t5chem_new/t5chem_prop/pka/data/SAMPL6/pairs/mix/no_labels/ --model_dir /scratch/cii2002/t5chem_new/t5chem_pKa/models/microscopic/
+--prediction models/microscopic/sampl6.csv
+```
+To run a macroscopic p<i>K</i><sub><i>a</i></sub> prediction using the ensemble model
+```bash
+python ensemble_prediction.py --scaler_random /scratch/cii2002/t5chem_new/t5chem_prop/data/TRAINING/SPLIT/ensemble/acidic_basic/ --scaler_scaffold /scratch/cii2002/t5chem_new/t5chem_prop/data/TRAINING/SPLIT/scaffold/ensemble/acidic_basic --data_dir /scratch/cii2002/t5chem_new/t5chem_prop/pka/data/SAMPL6/macropka/regression_monoprotic/acidic_basic --model_dir /scratch/cii2002/t5chem_new/t5chem_pKa/models/macroscopic/ --prediction models/macroscopic/sampl6.csv
+
+```
+
+## Training the models
