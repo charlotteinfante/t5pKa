@@ -36,5 +36,4 @@ python ensemble_prediction.py --scaler_random /scratch/cii2002/t5chem_new/t5chem
 ## Training the models
 Calculated p<i>K</i><sub><i>a</i></sub> datasets using Epik and pKasolver scripts (used for the seq2seq and micropscopic models)
 
-There are scripts from pKasolver that help produce the pKa values using Epik and their own scripts that uses Epik's predictions to give the SMILES with their respective sites of ionization. Found in their github: [
-](https://github.com/wiederm/pkasolver-data)
+There are scripts from pKasolver that help produce the pKa values using Epik and their own scripts that uses Epik's predictions to give the SMILES with their respective sites of ionization. Found in their github: https://github.com/wiederm/pkasolver-data
