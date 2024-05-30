@@ -2,6 +2,7 @@ import argparse
 import os
 import pickle
 from rdkit import Chem
+import pdb
 
 '''
 open pickle file to extract pkas and smiles molecule
@@ -36,17 +37,17 @@ def main():
     deprotonated_file = open(deprot_file, 'w')
 
     #sort through dict in pickle file and extract smiles  
-    prot = []
-    deprot = []
+    first = []
+    second = []
     for x, y in data.items():
         for z, lt in y.items():
             if 'smiles_list' in z:
-                prot_ = map(lambda x: x[0],lt)
-                deprot_ = map(lambda x: x[1], lt)
-                for mol_prot in prot_:
-                    prot.append(mol_prot)
-                for mol_deprot in deprot_:
-                    deprot.append(mol_deprot)
+                first_ = map(lambda x: x[0],lt)
+                second_ = map(lambda x: x[1], lt)
+                for mol_first in first_:
+                    first.append(mol_first)
+                for mol_second in second_:
+                    second.append(mol_second)
 
     #extract pKa values from pickle file and write it into a target file
     pka_saved_file = open(pka_file, 'w')
@@ -62,43 +63,49 @@ def main():
             pka_list.append(line.strip())
     pka_saved_file.close()
 
-    #check if protonated and deprotonated molecules are ordered correctly
-    prot_charge = []
-    deprot_charge = []
-        #get formal charges from protonated and deprotonated molecules
-    for i in prot:
+    # get formal charge of molecules to find net neutral molecules with atomic charges 
+    charged_atoms_count = []
+    charged_atoms_count_second = []
+    for index, i in enumerate(first):
         mol_id = Chem.MolFromSmiles(i)
-        prot_charge.append(Chem.GetFormalCharge(mol_id))
-    for i in deprot:
+        formal_charge = Chem.GetFormalCharge(mol_id)
+        charged_count = sum(1 for atom in mol_id.GetAtoms() if atom.GetFormalCharge() != 0)
+        charged_atoms_count.append(charged_count)
+    for index, i in enumerate(second):
         mol_id = Chem.MolFromSmiles(i)
-        deprot_charge.append(Chem.GetFormalCharge(mol_id))
+        formal_charge = Chem.GetFormalCharge(mol_id)
+        charged_count = sum(1 for atom in mol_id.GetAtoms() if atom.GetFormalCharge() != 0)
+        charged_atoms_count_second.append(charged_count)
 
-    check_mols = []
-    for index, (deprotonated, protonated) in enumerate(zip(deprot_charge, prot_charge)):
-        if deprotonated > protonated:
-            check_mols.append(index)
-    print('# of mols dropped', len(check_mols))
-
-        #drop molecules that are not ordered correctly 
-    check_mols.sort(reverse=True)
-    for index in check_mols:
-        prot.pop(index)
-        deprot.pop(index)
-        pka_list.pop(index)
-
+    # find the true neutrals that are the first molecules 
+    check_mol = []
+    for index, (first_molecule, second_molecule) in enumerate(zip(charged_atoms_count, charged_atoms_count_second)):   
+        if first_molecule > second_molecule:
+            check_mol.append(index)
+    correct_first = [second[i] for i in check_mol]
+    correct_second = [first[i] for i in check_mol]
+    correct_pka = [pka_list[i] for i in check_mol]
+    check_mol.sort(reverse=True)
+    for i in check_mol:
+        first.pop(i)
+        second.pop(i)
+        pka_list.pop(i)
+    merge_first = first + correct_first
+    merge_second = second + correct_second
+    merge_pka = pka_list + correct_pka
     #make source and target files for deprotonated and protonated molecules, respectfully
-    for mol_prot in prot:
+    for mol_prot in merge_first:
         print(mol_prot, file=protonated_file)
     protonated_file.close()
-    for mol_deprot in deprot:
+    for mol_deprot in merge_second:
         print(mol_deprot, file=deprotonated_file)
     deprotonated_file.close()
     pka_saved_file = open(pka_file, 'w')
-    for pka_value in pka_list:
+    for pka_value in merge_pka:
         print(pka_value, file=pka_saved_file)
     pka_saved_file.close()
 
-    #write deprotonated and protonated molecules  into one file as pairs
+    #write deprotonated and protonated molecules into one file as pairs
     pairs_saved_file = open(pairs_file, 'w')
     with open(prot_file, 'r') as f1, open(deprot_file, 'r') as f2:
         for prot_mol, deprot_mol in zip(f1, f2):
