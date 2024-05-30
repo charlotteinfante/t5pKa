@@ -16,8 +16,7 @@ if importlib.util.find_spec("selfies"):
     is_selfies_available = True
 pattern: str = "(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\\\|\/|:|~|@|\?|>|\*|\$|\%[0-9]{2}|[0-9])"
 regex: re.Pattern = re.compile(pattern)
-TASK_PREFIX: List[str] = ['Yield:', 'Product:', 'Fill-Mask:', 'Classification:', 'Reagents:', 'Reactants:', 'Pairs:', 'acidic:', 'basic:',
-'pka:', 'pkb:'] 
+TASK_PREFIX: List[str] = ['Yield:', 'Product:', 'Fill-Mask:', 'Classification:', 'Reagents:', 'Reactants:', 'Pairs:', 'acidic:', 'basic:'] 
 
 class MolTokenizer(ABC, PreTrainedTokenizer):
     r"""
