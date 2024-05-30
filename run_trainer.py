@@ -123,7 +123,7 @@ def train(args):
             format(tuple(T5ChemTasks.keys()), args.task_type)
     task: TaskSettings = T5ChemTasks[args.task_type]
 
-    if args.task_type in ['regression','macropka','micropka', 'micropka_labeled']:
+    if args.task_type in ['regression','macropka','micropka']:
         if os.path.isfile(os.path.join(args.data_dir,'MinMaxScaler.gz')):
             scaler = joblib.load(os.path.join(args.data_dir,'MinMaxScaler.gz'))
         else:
@@ -163,7 +163,7 @@ def train(args):
                 raise ValueError(
                         "Can't find a vocabulary file at path '{}'.".format(args.pretrain)
                     )
-        tokenizer = tokenizer_map[tokenizer_type](vocab_file=vocab_path, task_prefix=['Pairs:', 'acidic:', 'basic:', 'smiles_pka:','smiles_only'], max_size=112) #changed
+        tokenizer = tokenizer_map[tokenizer_type](vocab_file=vocab_path, task_prefix=["Pairs:","acidic:","basic:"], max_size=112) #changed
         model.config.tokenizer = tokenizer_type # type: ignore
         model.config.task_type = args.task_type # type: ignore
     else:
@@ -175,11 +175,15 @@ def train(args):
             args.tokenizer = 'simple'
         assert args.tokenizer in ('simple', 'atom', 'selfies'), \
             "{} tokenizer is not supported."
+
+        # if path to vocab file given, then use it
         if args.vocab == '':    #added 
             vocab_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vocab/'+args.tokenizer+'.pt') #added 
         else:
             vocab_path = args.vocab #added
+            
         tokenizer = tokenizer_map[args.tokenizer](vocab_file=vocab_path)
+        #tokenizer.add_tokens(["Pairs:", "acidic:", "basic:"])
         config = T5Config(
             vocab_size=len(tokenizer),
             pad_token_id=tokenizer.pad_token_id,
