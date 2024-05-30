@@ -161,16 +161,10 @@ def scaffold_stratkfold_split(args):
             # get scaffold from each molecule 
             scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['just smiles']]
         elif data['smiles'].str.contains('>>').any():
-            data['prot'] = [x.split('>>')[0] for x in data['smiles']]
-            data['deprot'] = [x.split('>>')[-1] for x in data['smiles']]
+            data['first'] = [x.split('>>')[0] for x in data['smiles']]
+            data['second'] = [x.split('>>')[-1] for x in data['smiles']]
             # get scaffold from each molecule 
-            scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['deprot']]
-        elif data['smiles'].str.contains('pka:|pkb:').any():
-            data['pairs'] = [x.split(':')[-1] for x in data['smiles']]
-            data['mol1'] = [x.split('>>')[0] for x in data['pairs']]
-            data['mol2'] = [x.split('>>')[-1] for x in data['pairs']]
-            # get scaffold from each molecule 
-            scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['mol1']]
+            scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['first']]
         else:
             # get scaffold from each molecule 
             scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smile) for smile in smiles]
