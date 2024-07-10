@@ -5,6 +5,7 @@ from functools import partial
 import pandas as pd
 import numpy as np
 import rdkit
+from rdkit import Chem
 import scipy
 import torch
 import joblib
@@ -20,6 +21,7 @@ from mol_tokenizers import AtomTokenizer, SelfiesTokenizer, SimpleTokenizer
 from sklearn.metrics import f1_score, roc_auc_score
 from scipy.stats import pearsonr
 import glob
+import pdb
 
 
 def add_args(parser):
@@ -82,24 +84,34 @@ def add_args(parser):
 def predict(args):
     lg = rdkit.RDLogger.logger()  
     lg.setLevel(rdkit.RDLogger.CRITICAL) 
-
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    # make sure the inputs are rdkit canonical SMILES 
+    with open(args.data_dir + 'test.source', 'r') as smiles_file:
+        smiles_list = [line.rstrip() for line in smiles_file]
+    smiles_df = pd.DataFrame(smiles_list, columns=['source'])
+    smiles_file.close()
+    if smiles_df['source'].str.contains('acidic:|basic:').any():
+        smiles_df[['prefix','just_smiles']] = smiles_df['source'].str.split(':',expand=True)
+        canonical = [Chem.MolToSmiles(Chem.MolFromSmiles(mol), canonical=True) for mol in smiles_df['just_smiles']]
+        smiles_df['canonical'] = canonical
+        smiles_df['combined'] = smiles_df[['prefix','canonical']].apply(lambda row: ':'.join(row.values.astype(str)), axis=1)
+        smiles_df['combined'].to_csv(args.data_dir + 'test.source', index=False, header=False)   
+
+    # option to chose the best checkpoint to run prediction (read in config)
     if args.best_cp == True:
         best_files = glob.glob(args.model_dir + '/best_*/')
         config = T5Config.from_pretrained(best_files[0])
     else:
         config = T5Config.from_pretrained(args.model_dir)
 
+    # get task type information
     task = T5ChemTasks[config.task_type]
+
+    # get the type of Tokenizer needed 
     tokenizer_type = getattr(config, "tokenizer")
-
-    if tokenizer_type == "simple":
-        Tokenizer = SimpleTokenizer
-    elif tokenizer_type == 'atom':
-        Tokenizer = AtomTokenizer
-    else:
-        Tokenizer = SelfiesTokenizer
-
+    tokenizer_map = {"simple": SimpleTokenizer,"atom": AtomTokenizer, "selfies": SelfiesTokenizer }
+    Tokenizer = tokenizer_map.get(tokenizer_type)
     tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.pt'))
 
     if os.path.isfile(args.data_dir):
@@ -132,9 +144,10 @@ def predict(args):
             "decoder_start_token_id": tokenizer.pad_token_id,
             }
         }
+        # allow possibility to predict using best checkpoint
         if args.best_cp == True:
             best_files = glob.glob(args.model_dir +'/best_*/')
-            model = T5ForProperty.from_pretrained(best_files[0])
+            model = T5ForConditionalGeneration.from_pretrained(best_files[0])
         else:
             model = T5ForConditionalGeneration.from_pretrained(args.model_dir)
         model.eval()
@@ -175,12 +188,12 @@ def predict(args):
                     batch[k] = v.to(device)
 
             with torch.no_grad():
-                outputs = model(**batch) # Pull out a single example. Check if that works. 
-                cur_start = i*args.batch_size #What does this do?
+                outputs = model(**batch) 
+                cur_start = i*args.batch_size 
                 cur_end = cur_start + outputs.logits.shape[0]
                 targets[cur_start : cur_end] = batch['labels'].detach().cpu().numpy()
                 if task.output_layer == 'regression':
-                    logits = outputs.logits # Check that logits are torch.exp[:,:,1]
+                    logits = outputs.logits 
                 elif outputs.logits.shape[-1] == 2: # binary classification
                     logits = outputs.logits[:,-1:]
                     binary_classification = True
@@ -189,7 +202,7 @@ def predict(args):
                     binary_classification = False
                 predictions[cur_start : cur_end] = logits.detach().cpu().numpy()
 
-    if isinstance(predictions, list): # Unclear what conditions would make predictions a list, but unlikely to enter this
+    if isinstance(predictions, list): 
         for i, preds in enumerate(predictions):
             test_df['prediction_{}'.format(i + 1)] = preds
             test_df['prediction_{}'.format(i + 1)] = \
