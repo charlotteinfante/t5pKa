@@ -86,8 +86,14 @@ def predict(args):
     lg.setLevel(rdkit.RDLogger.CRITICAL) 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    if os.path.isfile(args.data_dir):
+        args.data_dir, base = os.path.split(args.data_dir)
+        base = base.split('.')[0]
+    else:
+        base = "test"
+
     # make sure the inputs are rdkit canonical SMILES 
-    with open(args.data_dir + 'test.source', 'r') as smiles_file:
+    with open(args.data_dir +'/'+ base+ '.source', 'r') as smiles_file:
         smiles_list = [line.rstrip() for line in smiles_file]
     smiles_df = pd.DataFrame(smiles_list, columns=['source'])
     smiles_file.close()
@@ -114,11 +120,11 @@ def predict(args):
     Tokenizer = tokenizer_map.get(tokenizer_type)
     tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.pt'))
 
-    if os.path.isfile(args.data_dir):
-        args.data_dir, base = os.path.split(args.data_dir)
-        base = base.split('.')[0]
-    else:
-        base = "test"
+    #if os.path.isfile(args.data_dir):
+    #    args.data_dir, base = os.path.split(args.data_dir)
+    #    base = base.split('.')[0]
+    #else:
+    #    base = "test"
 
     testset = TaskPrefixDataset(tokenizer, data_dir=args.data_dir,
                                     prefix=args.prefix or task.prefix,
