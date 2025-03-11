@@ -30,10 +30,7 @@ T5ChemTasks: Dict[str, TaskSettings] = {
     'pretrain': TaskSettings('Fill-Mask:', 400, 200, 'seq2seq'),
     'mixed': TaskSettings('', 400, 300, 'seq2seq'),
     'micropka': TaskSettings('Pairs:', 500, 1, 'regression'), #added 
-    'micropka_labeled': TaskSettings('', 500, 1, 'regression'), #added
-    'macropka': TaskSettings('', 500, 1, 'regression'), #added 
-    'macropka_acidic': TaskSettings('acidic:', 500, 1, 'regression'), #added 
-    'macropka_basic': TaskSettings('basic:', 500, 1, 'regression'), #added 
+    'macropka': TaskSettings('', 500, 1, 'regression'), #added
 }
 
 

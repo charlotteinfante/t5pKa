@@ -5,6 +5,7 @@ from functools import partial
 import pandas as pd
 import numpy as np
 import rdkit
+from rdkit import Chem
 import scipy
 import torch
 import joblib
@@ -72,19 +73,6 @@ def add_args(parser):
         type=bool,
         help="predict the best step based on lowest loss",
     )
-    parser.add_argument(
-        "--internal_eval",
-        default=False,
-        type=bool,
-        help="if you are evaluting the model based on validation and test set from dataset model was trained on",
-    )
-    parser.add_argument(
-        "--internal_eval_type",
-        default='',
-        type=str,
-        help="use either 'val' or 'test' if evaluting model internally" ,
-    )
-
 
 def predict(args):
     '''
@@ -100,48 +88,51 @@ def predict(args):
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    all_predictions, all_targets = [], []
+    # make sure the inputs are rdkit canonical SMILES 
+    with open(args.data_dir + 'test.source', 'r') as smiles_file:
+        smiles_list = [line.rstrip() for line in smiles_file]
+    smiles_df = pd.DataFrame(smiles_list, columns=['source'])
+    smiles_file.close()
+    if smiles_df['source'].str.contains('acidic:|basic:').any():
+        smiles_df[['prefix','just_smiles']] = smiles_df['source'].str.split(':',expand=True)
+        canonical = [Chem.MolToSmiles(Chem.MolFromSmiles(mol), canonical=True) for mol in smiles_df['just_smiles']]
+        smiles_df['canonical'] = canonical
+        smiles_df['combined'] = smiles_df[['prefix','canonical']].apply(lambda row: ':'.join(row.values.astype(str)), axis=1)
+        smiles_df['combined'].to_csv(args.data_dir + 'test.source', index=False, header=False)   
 
+
+    all_predictions, all_targets = [], []
     #breakpoint()
     for i in range(1,11):
+        # option to chose the best checkpoint to run prediction (read in config)
         if args.best_cp == True:
             best_files = glob.glob(args.model_dir + str(i) +'/best_*/')
             config = T5Config.from_pretrained(best_files[0])
         else:
             config = T5Config.from_pretrained(args.model_dir + str(i) )
         
+        # get task type information
         task = T5ChemTasks[config.task_type]
-        tokenizer_type = getattr(config, "tokenizer")
 
-        tokenizer = SimpleTokenizer(vocab_file=os.path.join(args.model_dir,str(i)+'/vocab.pt'))
-        if args.internal_eval == True and args.internal_eval_type == 'val':
-            internal_data = os.path.join(args.data_dir,str(i)+'/')
-            internal_data_, base = os.path.split(internal_data)
-            base = args.internal_eval_type
-        elif args.internal_eval == True and args.internal_eval_type == 'test':
-            internal_data = os.path.join(args.data_dir)
-            internal_data_, base = os.path.split(internal_data)
-            base = args.internal_eval_type
-        elif args.internal_eval == False and os.path.isfile(args.data_dir):
+        # get the type of Tokenizer needed 
+        tokenizer_type = getattr(config, "tokenizer")
+        tokenizer_map = {"simple": SimpleTokenizer,"atom": AtomTokenizer, "selfies": SelfiesTokenizer }
+        Tokenizer = tokenizer_map.get(tokenizer_type)
+        tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, str(i)+'/vocab.pt'))
+
+        if os.path.isfile(args.data_dir):
             args.data_dir, base = os.path.split(args.data_dir)
             base = base.split('.')[0]
         else:
             base = "test"
-
+        # get scaler 
         if 1 <= i <= 5:
             path = args.scaler_random,str(i)
             scaler = joblib.load(os.path.join(args.scaler_random,str(i)+'/MinMaxScaler.gz')) 
         else:
             scaler = joblib.load(os.path.join(args.scaler_scaffold,str(i - 5)+'/MinMaxScaler.gz')) 
-        #if args.scaler is not None:
-        #    scaler = joblib.load(os.path.join(args.scaler,str(i)+'/MinMaxScaler.gz')) 
-        
-        if args.internal_eval == True:
-            data = internal_data_
-        else:
-            data = args.data_dir
 
-        testset = TaskPrefixDataset(tokenizer, data_dir=data,
+        testset = TaskPrefixDataset(tokenizer, data_dir=args.data_dir,
                                     prefix=args.prefix or task.prefix,
                                     max_source_length=task.max_source_length,
                                     max_target_length=task.max_target_length,

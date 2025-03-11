@@ -14,6 +14,7 @@ example for getting the evalution of the ensemble model: python ensemble.py --pr
 
 '''
 import os
+import re
 import pdb
 import pandas as pd  
 import numpy as np 
@@ -156,21 +157,23 @@ def scaffold_stratkfold_split(args):
         fold_size = length_data // 5
 
         # condition for mixed dataset (has "acidic:" or "basic:" prefixes)
-        if data['smiles'].str.contains('acidic:|basic:').any():
+        if data['smiles'].str.contains('Pairs:|acidic:').any():
+            data['prefix'] = [x.split(':')[0] for x in data['smiles']]
+            data['placeholder'] = [x.split(':')[-1] for x in data['smiles']]
+            data['first'] = [x.split('>>')[0] for x in data['placeholder']]
+            data['second'] = [x.split('>>')[-1] for x in data['placeholder']]
+            scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['first']]
+        elif data['smiles'].str.contains('acidic:|basic:').any():
             data['just smiles'] = [x.split(':')[-1] for x in data['smiles']]
             # get scaffold from each molecule 
             scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['just smiles']]
-        elif data['smiles'].str.contains('>>').any():
-            data['prot'] = [x.split('>>')[0] for x in data['smiles']]
-            data['deprot'] = [x.split('>>')[-1] for x in data['smiles']]
+        elif data['smiles'].str.contains('>>|<<').any():
+            data['first'] = data['smiles'].astype(str).apply(lambda x: re.split('>>|<<', x)[0])
+            #data['first'] = [x.split('>>')[0] for x in data['smiles']]
+            data['second'] = data['smiles'].astype(str).apply(lambda x: re.split('>>|<<', x)[-1])
+            #data['second'] = [x.split('>>')[-1] for x in data['smiles']]
             # get scaffold from each molecule 
-            scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['deprot']]
-        elif data['smiles'].str.contains('pka:|pkb:').any():
-            data['pairs'] = [x.split(':')[-1] for x in data['smiles']]
-            data['mol1'] = [x.split('>>')[0] for x in data['pairs']]
-            data['mol2'] = [x.split('>>')[-1] for x in data['pairs']]
-            # get scaffold from each molecule 
-            scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['mol1']]
+            scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smiles) for smiles in data['first']]
         else:
             # get scaffold from each molecule 
             scaffold = [MurckoScaffold.MurckoScaffoldSmilesFromSmiles(smile) for smile in smiles]
@@ -209,7 +212,7 @@ def scaffold_stratkfold_split(args):
         fold_3 = np.array(fold_3)
         fold_4 = np.array(fold_4)
         fold_5 = np.array(fold_5)
-            
+        
         # code after this commented chunk does this in a loop 
             #train_1 = np.concatenate((fold_2, fold_3, fold_4, fold_5), axis=0)
             #val_1 = fold_1
