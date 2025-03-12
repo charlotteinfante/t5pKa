@@ -5,7 +5,6 @@ from functools import partial
 import pandas as pd
 import numpy as np
 import rdkit
-from rdkit import Chem
 import scipy
 import torch
 import joblib
@@ -14,15 +13,14 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm.auto import tqdm
 from transformers import T5Config, T5ForConditionalGeneration
 
-from data_utils import T5ChemTasks, TaskPrefixDataset, data_collator
-from evaluation import get_rank, standize
-from model import T5ForProperty
-from mol_tokenizers import AtomTokenizer, SelfiesTokenizer, SimpleTokenizer
+from t5chem.data_utils import T5ChemTasks, TaskPrefixDataset, data_collator
+from t5chem.evaluation import get_rank, standize
+from t5chem.model import T5ForProperty
+from t5chem.mol_tokenizers import AtomTokenizer, SelfiesTokenizer, SimpleTokenizer
 from sklearn.metrics import f1_score, roc_auc_score
 from scipy.stats import pearsonr
+#import pdb
 import glob
-import pdb
-
 
 def add_args(parser):
     parser.add_argument(
@@ -74,57 +72,32 @@ def add_args(parser):
         type=int,
         help="Batch size for training and validation.",
     )
-    parser.add_argument(
-        "--best_cp",
-        default=False,
-        type=bool,
-        help="predict the best step based on lowest loss",
-    )
+
 
 def predict(args):
     lg = rdkit.RDLogger.logger()  
     lg.setLevel(rdkit.RDLogger.CRITICAL) 
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    config = T5Config.from_pretrained(args.model_dir)
+    task = T5ChemTasks[config.task_type]
+    tokenizer_type = getattr(config, "tokenizer")
+
+    if tokenizer_type == "simple":
+        Tokenizer = SimpleTokenizer
+    elif tokenizer_type == 'atom':
+        Tokenizer = AtomTokenizer
+    else:
+        Tokenizer = SelfiesTokenizer
+
+    tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.txt'))
 
     if os.path.isfile(args.data_dir):
         args.data_dir, base = os.path.split(args.data_dir)
         base = base.split('.')[0]
     else:
         base = "test"
-
-    # make sure the inputs are rdkit canonical SMILES 
-    with open(args.data_dir +'/'+ base+ '.source', 'r') as smiles_file:
-        smiles_list = [line.rstrip() for line in smiles_file]
-    smiles_df = pd.DataFrame(smiles_list, columns=['source'])
-    smiles_file.close()
-    if smiles_df['source'].str.contains('acidic:|basic:').any():
-        smiles_df[['prefix','just_smiles']] = smiles_df['source'].str.split(':',expand=True)
-        canonical = [Chem.MolToSmiles(Chem.MolFromSmiles(mol), canonical=True) for mol in smiles_df['just_smiles']]
-        smiles_df['canonical'] = canonical
-        smiles_df['combined'] = smiles_df[['prefix','canonical']].apply(lambda row: ':'.join(row.values.astype(str)), axis=1)
-        smiles_df['combined'].to_csv(args.data_dir + 'test.source', index=False, header=False)   
-
-    # option to chose the best checkpoint to run prediction (read in config)
-    if args.best_cp == True:
-        best_files = glob.glob(args.model_dir + '/best_*/')
-        config = T5Config.from_pretrained(best_files[0])
-    else:
-        config = T5Config.from_pretrained(args.model_dir)
-
-    # get task type information
-    task = T5ChemTasks[config.task_type]
-
-    # get the type of Tokenizer needed 
-    tokenizer_type = getattr(config, "tokenizer")
-    tokenizer_map = {"simple": SimpleTokenizer,"atom": AtomTokenizer, "selfies": SelfiesTokenizer }
-    Tokenizer = tokenizer_map.get(tokenizer_type)
-    tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.pt'))
-
-    #if os.path.isfile(args.data_dir):
-    #    args.data_dir, base = os.path.split(args.data_dir)
-    #    base = base.split('.')[0]
-    #else:
-    #    base = "test"
 
     testset = TaskPrefixDataset(tokenizer, data_dir=args.data_dir,
                                     prefix=args.prefix or task.prefix,
@@ -139,8 +112,8 @@ def predict(args):
         collate_fn=data_collator_padded
     )
 
+    targets = []
     if task.output_layer == 'seq2seq':
-        targets = []
         task_specific_params = {
             "Reaction": {
             "early_stopping": True,
@@ -150,19 +123,14 @@ def predict(args):
             "decoder_start_token_id": tokenizer.pad_token_id,
             }
         }
-        # allow possibility to predict using best checkpoint
-        if args.best_cp == True:
-            best_files = glob.glob(args.model_dir +'/best_*/')
-            model = T5ForConditionalGeneration.from_pretrained(best_files[0])
-        else:
-            model = T5ForConditionalGeneration.from_pretrained(args.model_dir)
+        model = T5ForConditionalGeneration.from_pretrained(args.model_dir)
         model.eval()
         model = model.to(device)
 
         with open(os.path.join(args.data_dir, base+".target")) as rf:
             for line in rf:
                 targets.append(standize(line.strip()[:task.max_target_length]))
-        test_df = pd.DataFrame(targets, columns=['target']) #added 
+    
         predictions = [[] for i in range(args.num_preds)]
         for batch in tqdm(test_loader, desc="prediction"):
             for k, v in batch.items():
@@ -173,42 +141,30 @@ def predict(args):
             for i,pred in enumerate(outputs):
                 prod = tokenizer.decode(pred, skip_special_tokens=True,
                         clean_up_tokenization_spaces=False)
-                predictions[i % args.num_preds].append(prod)
+                predictions[i % args.num_preds].append(prod.replace(" ",""))
 
     else:
-        num_targets = testset[0]['decoder_input_ids'].shape[-1]
-        predictions = np.zeros((len(testset), num_targets))
-        targets = np.zeros_like(predictions)
-        if args.best_cp == True:
-            best_files = glob.glob(args.model_dir+'/best_*/')
-            model = T5ForProperty.from_pretrained(best_files[0])
-        else:
-            model = T5ForProperty.from_pretrained(args.model_dir)
+        predictions = []
+        model = T5ForProperty.from_pretrained(args.model_dir)
         model.eval()
         model = model.to(device)
-        test_df = pd.DataFrame(targets, columns=['target_'+str(i) for i in range(num_targets)]) #added 
 
-        for i, batch in enumerate(tqdm(test_loader, desc="prediction")):
+        for batch in tqdm(test_loader, desc="prediction"):
             for k, v in batch.items():
                 if isinstance(v, torch.Tensor):
                     batch[k] = v.to(device)
-
             with torch.no_grad():
-                outputs = model(**batch) 
-                cur_start = i*args.batch_size 
-                cur_end = cur_start + outputs.logits.shape[0]
-                targets[cur_start : cur_end] = batch['labels'].detach().cpu().numpy()
-                if task.output_layer == 'regression':
-                    logits = outputs.logits 
-                elif outputs.logits.shape[-1] == 2: # binary classification
-                    logits = outputs.logits[:,-1:]
-                    binary_classification = True
-                else:
-                    logits = torch.argmax(outputs.logits, axis=-1, keepdim=True)
-                    binary_classification = False
-                predictions[cur_start : cur_end] = logits.detach().cpu().numpy()
+                outputs = model(**batch)
+            if task.output_layer == 'classification':
+                pred_val = torch.argmax(outputs.logits, axis=-1)
+            else:
+                pred_val = outputs.logits
+            targets.extend(batch['labels'].view(-1).to(pred_val).tolist())
+            predictions.extend((pred_val).tolist())
 
-    if isinstance(predictions, list): 
+    test_df = pd.DataFrame(targets, columns=['target'])
+
+    if isinstance(predictions[0], list):
         for i, preds in enumerate(predictions):
             test_df['prediction_{}'.format(i + 1)] = preds
             test_df['prediction_{}'.format(i + 1)] = \
@@ -222,41 +178,29 @@ def predict(args):
             invalid_smiles += (test_df['prediction_{}'.format(i)] == '').sum()
             print('Top-{}: {:.1f}% || Invalid {:.2f}%'.format(i, correct/len(test_df)*100, \
                 invalid_smiles/len(test_df)/i*100))
-    
-    
-    
     elif task.output_layer == 'regression':
+        #breakpoint()
         if args.scaler is not None:
-            scaler = joblib.load(os.path.join(args.scaler,'MinMaxScaler.gz')) 
+            scaler = joblib.load(os.path.join(args.scaler, 'MinMaxScaler.gz'))
             predictions = scaler.inverse_transform(predictions)
-        test_df[['prediction_'+str(i) for i in range(num_targets)]] = predictions # predictions_#
-        MAE = mean_absolute_error(targets, predictions)      
-        MSE = mean_squared_error(targets, predictions)
-        if num_targets == 1: 
-            LinResults = scipy.stats.linregress(predictions.reshape(-1), targets.reshape(-1))
-            coef_determin = r2_score(targets.reshape(-1), predictions.reshape(-1))
-            r_value, prob = pearsonr(targets.reshape(-1), predictions.reshape(-1))
-            print("MAE: {}    RMSE: {}    r2: {}    r: {}".format(MAE, MSE**0.5, coef_determin, r_value))
-        else:
-            print("MAE: {}    RMSE: {}".format(MAE, MSE**0.5))
-    
-    
-    
+        predictions = np.array(predictions)
+        targets = np.array(targets)
+        test_df['prediction'] = predictions
+        MAE = mean_absolute_error(test_df['target'], test_df['prediction'])      
+        MSE = mean_squared_error(test_df['target'], test_df['prediction'])
+        LinResults = scipy.stats.linregress(predictions.reshape(-1), targets.reshape(-1))
+        coef_determin = r2_score(targets.reshape(-1), predictions.reshape(-1))
+        r_value, prob = pearsonr(targets.reshape(-1), predictions.reshape(-1))
+        #slope, intercept, r_value, p_value, std_err = \
+        #    scipy.stats.linregress(test_df['prediction'], test_df['target'])
+        print("MAE: {}    RMSE: {}    r2: {}    r:{}".format(MAE, MSE**0.5, coef_determin, r_value))
     else:
-        if binary_classification:
-            roc_auc = roc_auc_score(test_df['target_0'], predictions)
-            test_df['prediction'] = predictions>0.5
-            print('ROC-AUC: {:.3f}'.format(roc_auc), end='\t')
-        else:
-            test_df['prediction'] = predictions
-            f1 = f1_score(test_df['target_0'], predictions, average='macro')
-            print('F1 Score: {:.3f}'.format(f1), end='\t')
-        test_df = test_df.astype(int)
-        correct = sum(test_df['prediction'] == test_df['target_0'])
+        test_df['prediction_1'] = predictions
+        correct = sum(test_df['prediction_1'] == test_df['target'])
         print('Accuracy: {:.1f}%'.format(correct/len(test_df)*100))
 
     if not args.prediction:
-        args.prediction = os.path.join(args.model_dir, 'predictions_'+base+'.csv')
+        args.prediction = os.path.join(args.model_dir, 'predictions.csv')
     test_df.to_csv(args.prediction, index=False)
 
 if __name__ == "__main__":
