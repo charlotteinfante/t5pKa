@@ -4,8 +4,7 @@ import pandas as pd
 import rdkit
 import scipy
 from rdkit import Chem
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from scipy.stats import pearsonr
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 
 def add_args(parser):
@@ -77,11 +76,9 @@ def main():
     else:
         MAE = mean_absolute_error(predictions['target'], predictions['prediction'])      
         MSE = mean_squared_error(predictions['target'], predictions['prediction'])
-        targets = np.c_[predictions['target']]
-        pred = np.c_[predictions['prediction']]
-        r_value, prob = pearsonr(targets, pred)
-        coef_determin = r2_score(predictions['target'], predictions['prediction'])
-        print("MAE: {}    RMSE: {}    r2: {}    r: {}".format(MAE, MSE**0.5, coef_determin, r_value))
+        slope, intercept, r_value, p_value, std_err = \
+            scipy.stats.linregress(predictions['prediction'], predictions['target'])
+        print("MAE: {}    RMSE: {}    r2: {}    r:{}".format(MAE, MSE**0.5, r_value**2, r_value))
 
 if __name__ == "__main__":
     main()
