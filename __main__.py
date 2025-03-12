@@ -2,13 +2,11 @@
 """
 from argparse import ArgumentParser
 
-from __version__ import __version__
-from run_prediction import add_args as pred_args
-from run_prediction import predict
-from run_pretrain import add_args as pretrain_args
-from run_pretrain import train as pretrain
-from run_trainer import add_args as train_args
-from run_trainer import train
+from t5chem.__version__ import __version__
+from t5chem.run_prediction import add_args as pred_args
+from t5chem.run_prediction import predict
+from t5chem.run_trainer import add_args as train_args
+from t5chem.run_trainer import train
 
 __all__ = "main",
  
@@ -49,9 +47,6 @@ def _execute(subparsers, common):
     pred_parser = subparsers.add_parser("predict", parents=[common])
     pred_args(pred_parser)
     pred_parser.set_defaults(command=predict)
-    pretrain_parser = subparsers.add_parser("pretrain", parents=[common])
-    pretrain_args(pretrain_parser)
-    pretrain_parser.set_defaults(command=pretrain)
     return
 
 # Make the module executable.
