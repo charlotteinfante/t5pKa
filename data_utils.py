@@ -1,17 +1,15 @@
 import linecache
 import os
 import subprocess
-from typing import Dict, List, NamedTuple, Optional
+from typing import Dict, List, NamedTuple
 
 import numpy as np
 import torch
-import h5py
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 from transformers import BatchEncoding, PreTrainedTokenizer
 from transformers.trainer_utils import PredictionOutput
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import f1_score, roc_auc_score
 
 
 class TaskSettings(NamedTuple):
@@ -29,8 +27,6 @@ T5ChemTasks: Dict[str, TaskSettings] = {
     'regression': TaskSettings('Yield:', 500, 1, 'regression'),
     'pretrain': TaskSettings('Fill-Mask:', 400, 200, 'seq2seq'),
     'mixed': TaskSettings('', 400, 300, 'seq2seq'),
-    'micropka': TaskSettings('Pairs:', 500, 1, 'regression'), #added 
-    'macropka': TaskSettings('', 500, 1, 'regression'), #added
 }
 
 
@@ -52,13 +48,15 @@ class LineByLineTextDataset(Dataset):
         
     def __getitem__(self, idx: int) -> torch.Tensor:
         line: str = linecache.getline(self._file_path, idx + 1).strip()
-        sample: BatchEncoding = self.tokenizer(
+        sample = self.tokenizer(
                         self.prefix+line,
                         max_length=self.max_length,
                         padding="do_not_pad",
                         truncation=True,
                         return_tensors='pt',
                     )
+        # Assert sample is BatchEncoding
+        assert isinstance(sample, BatchEncoding) # Should be a batchEncoding.
         return sample['input_ids'].squeeze(0)
       
     def __len__(self) -> int:
@@ -104,8 +102,8 @@ class TaskPrefixDataset(Dataset):
         target_line: str = linecache.getline(self._target_path, idx + 1).strip()
         if self.sep_vocab:
             try:
-                target_value: List[float] = [float(x) for x in target_line.split(',')]
-                target_ids: torch.Tensor = torch.Tensor(target_value)
+                target_value: float = float(target_line)
+                target_ids: torch.Tensor = torch.Tensor([target_value])
             except TypeError:
                 print("The target should be a number, \
                         not {}".format(target_line))
@@ -129,52 +127,7 @@ class TaskPrefixDataset(Dataset):
         return len(ex['input_ids'])
 
 
-class PropertyPretrainDataset(Dataset):
-    def __init__(
-        self,
-        tokenizer: PreTrainedTokenizer,
-        data_dir: str,
-        prefix: str='',
-        type_path: str="train",
-        max_source_length: int=300,
-    ) -> None:
-        super().__init__()
-
-        self.prefix: str = prefix
-        self._source_path: str = os.path.join(data_dir, type_path + ".source")
-        self._target_path: str = os.path.join(data_dir, type_path + ".hdf5")
-        self.tokenizer: PreTrainedTokenizer = tokenizer
-        self.max_source_len: int = max_source_length
-        self.h5py_file = h5py.File(self._target_path, "r")
-        self.targets = self.h5py_file['dataset']
-
-    def __len__(self) -> int:
-        return len(self.targets)
-
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        source_line: str = linecache.getline(self._source_path, idx + 1).strip()
-        source_sample: BatchEncoding = self.tokenizer(
-                        self.prefix+source_line,
-                        max_length=self.max_source_len,
-                        padding="do_not_pad",
-                        truncation=True,
-                        return_tensors='pt',
-                    )
-        target_ids: torch.Tensor = torch.from_numpy(self.targets[idx]).to(torch.FloatTensor())
-        source_ids: torch.Tensor = source_sample["input_ids"].squeeze(0)
-        src_mask: torch.Tensor = source_sample["attention_mask"].squeeze(0)
-        return {"input_ids": source_ids, "attention_mask": src_mask,
-                "decoder_input_ids": target_ids}
-
-    def __del__(self):
-        self.h5py_file.close()
-
-    def sort_key(self, ex: BatchEncoding) -> int:
-        """ Sort using length of source sentences. """
-        return len(ex['input_ids'])
-
-
-def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Optional[MinMaxScaler] = None) -> Dict[str, torch.Tensor]:
+def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Optional[MinMaxScaler] = None) -> Dicr[str, torch.Tensor]:
     whole_batch: Dict[str, torch.Tensor] = {}
     ex: BatchEncoding = batch[0]
     for key in ex.keys():
@@ -194,8 +147,8 @@ def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Opti
 
 
 def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = None) -> Dict[str, float]:
-    predictions: np.ndarray = model_output.predictions # type: ignore
-    label_ids: np.ndarray = model_output.label_ids # type: ignore
+    predictions: np.ndarray = model_output.predictions[0] # type: ignore
+    label_ids: np.ndarray = model_output.label_ids.squeeze() # type: ignore
     if scaler:
         predictions = scaler.inverse_transform(predictions)
         label_ids = scaler.inverse_transform(label_ids)
@@ -204,48 +157,7 @@ def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = 
 
 def AccuracyMetrics(model_output: PredictionOutput) -> Dict[str, float]:
     label_ids: np.ndarray = model_output.label_ids # type: ignore
-    predictions: np.ndarray = model_output.predictions # type: ignore
-    correct: int = np.all(predictions==label_ids, 1).sum()
-    return {'accuracy': correct/len(predictions)}
-
-def F1_AUCMetrics(model_output: PredictionOutput) -> Dict[str, float]:
-    label_ids: np.ndarray = model_output.label_ids # type: ignore
-    predictions: np.ndarray = model_output.predictions # type: ignore
-    if predictions.shape[-1] == 2: # only for binary classification
-        pred_ids: np.ndarray = np.argmax(predictions, axis=-1).reshape(label_ids.shape)
-        correct: int = np.all(pred_ids==label_ids, 1).sum()
-        f1: float = f1_score(label_ids, pred_ids)
-        onehot: np.ndarray = np.eye(2)[label_ids.reshape(-1).astype(int)]
-        auc: float = roc_auc_score(label_ids, predictions[:,-1])
-        return {'accuracy': correct/len(predictions), 'f1': f1, 'roc_auc': auc}
-    label_ids = label_ids.reshape(-1).astype(int)
-    correct: int = (predictions==label_ids).sum()
-    f1: float = f1_score(label_ids, predictions, average='macro') 
-    # In general, if you are working with an imbalanced dataset where all classes are 
-    # equally important, using the 'macro' average.If you want to assign greater 
-    # contribution to classes with more examples in the dataset, then use 'weighted'.
-    return {'accuracy': correct/len(predictions), 'f1': f1}
-
-def random_split(data, train_ratio, test_ratio, seed):
-    '''
-    Performs random splitting based on a given ratio for the training, validation, and test sets. 
-        data: file that contains the dataset
-            (type: pandas dataframe or csv)
-        train_ratio: size of the training set
-            (type: float)
-        test_ratio : size of the test set 
-            (type: float)
-        seed: the seed you want each run to hold
-            (type: int)
-        Returns: 3 pandas dataframe 
-        
-        example for an 8:1:1 splitting:
-            train, val, test = random_split(dataset, 0.8, 0.1, 42)
-        *This is a slightly modified version of sklearn's train_test_split function*
-    '''
-    np.random.seed(seed)
-    shuffle_data = np.random.permutation(len(data))
-    train_indices = shuffle_data[:int(len(data)*train_ratio)]
-    val_indices = shuffle_data[int(len(data)*train_ratio):int(len(data)*(1.0-test_ratio))]
-    test_indices = shuffle_data[int(len(data)*(1.0-test_ratio)):]
-    return data.iloc[train_indices], data.iloc[val_indices], data.iloc[test_indices]
+    predictions: np.ndarray = np.argmax(model_output.predictions[0], axis=-1)
+    mask = label_ids != -100
+    masked_equal = (predictions.reshape(len(label_ids), -1) == label_ids) | ~mask
+    return {'accuracy': np.all(masked_equal, axis=1).mean()}
