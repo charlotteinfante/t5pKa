@@ -19,14 +19,14 @@ from data_utils import (AccuracyMetrics, CalMSELoss, LineByLineTextDataset,
 from model import T5ForProperty
 from mol_tokenizers import (AtomTokenizer, MolTokenizer, SelfiesTokenizer,
                             SimpleTokenizer)
-from trainer import EarlyStopTrainer
+from transformers import Trainer, TrainingArguments, EarlyStoppingCallback 
+from datetime import datetime
 
 tokenizer_map: Dict[str, MolTokenizer] = {
     'simple': SimpleTokenizer,  # type: ignore
     'atom': AtomTokenizer,  # type: ignore
     'selfies': SelfiesTokenizer,    # type: ignore
 }
-
 
 def add_args(parser):
     parser.add_argument(
@@ -49,11 +49,17 @@ def add_args(parser):
             'regression', 'classification', 'pretrain', 'mixed')",
     )
     parser.add_argument(
+        "--run_name",
+        type=str,
+        default='',
+        help="Run name identifier for the experiment. Will be used in logging and output naming.",
+    )
+    parser.add_argument(
         "--pretrain",
         default='',
         help="Path to a pretrained model. If not given, we will train from scratch",
     )
-    parser.add_argument(
+        parser.add_argument(
         "--pretrain_best_cp",
         default=False,
         type=bool,
@@ -82,8 +88,14 @@ def add_args(parser):
         help="Number of epochs for training.",
     )
     parser.add_argument(
-        "--log_step",
+        "--eval_steps",
         default=5000,
+        type=int,
+        help="Number of steps between each evaluation.",
+    )
+    parser.add_argument(
+        "--log_step",
+        default=1000,
         type=int,
         help="Logging after every log_step",
     )
@@ -102,20 +114,18 @@ def add_args(parser):
     parser.add_argument(
         "--num_classes",
         type=int,
-        help="The number of classes in classification or regression task.",
+        help="The number of classes in classification task. Only used when task_type is Classification",
     )
 
 
 def train(args):
     print(args)
+
+    os.environ["WANDB_PROJECT"]="T5Chem"
     torch.cuda.manual_seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
-    # this one is needed for torchtext random call (shuffled iterator)
-    # in multi gpu it ensures datasets are read in the same order
     random.seed(args.random_seed)
-    # some cudnn methods can be random even after fixing the seed
-    # unless you tell it to be deterministic
     torch.backends.cudnn.deterministic = True
 
     assert args.task_type in T5ChemTasks, \
@@ -123,67 +133,44 @@ def train(args):
             format(tuple(T5ChemTasks.keys()), args.task_type)
     task: TaskSettings = T5ChemTasks[args.task_type]
 
-    if args.task_type in ['regression','macropka','micropka']:
-        if os.path.isfile(os.path.join(args.data_dir,'MinMaxScaler.gz')):
-            scaler = joblib.load(os.path.join(args.data_dir,'MinMaxScaler.gz'))
-        else:
-            all_targets = np.loadtxt(os.path.join(args.data_dir,'train.target'),delimiter=',')
-            if len(all_targets.shape) == 1:
-                all_targets = all_targets.reshape(-1, 1)
-            scaler = MinMaxScaler(clip=True)
-            scaler.fit(all_targets)
-            joblib.dump(scaler, os.path.join(args.data_dir,'MinMaxScaler.gz'))
-        args.num_classes = scaler.n_features_in_
-    else:
-        scaler = None
+    # Get current time
+    current_time = datetime.now().strftime("%m%d_%H%M")
 
     if args.pretrain: # retrieve information from pretrained model
         if task.output_layer == 'seq2seq':
             model = T5ForConditionalGeneration.from_pretrained(args.pretrain)
         else:
             model = T5ForProperty.from_pretrained(
-                args.pretrain,
-            )   # use model pretrained setting for now, resize later if inconsistent with our dataset
-            model.head_type = task.output_layer
-            model.config.head_type = model.head_type
-            if args.num_classes and (args.num_classes != getattr(model.config, "num_classes", None)):
-                model.resize_num_classes(args.num_classes)
-            
+                args.pretrain, 
+                head_type = task.output_layer,
+                ignore_mismatched_sizes = True,
+                num_classes = args.num_classes,
+            )
         if not hasattr(model.config, 'tokenizer'):
             logging.warning("No tokenizer type detected, will use SimpleTokenizer as default")
         tokenizer_type = getattr(model.config, "tokenizer", 'simple')
-        if args.pretrain_best_cp == True:
-            pretrain_directory =  glob.glob(args.pretrain)[0]
-            vocab_path = os.path.join(pretrain_directory, '..', 'vocab.pt')
-        else: 
-            vocab_path = os.path.join(args.pretrain, 'vocab.pt')
+        vocab_path = os.path.join(args.pretrain, 'vocab.txt')
         if not os.path.isfile(vocab_path):
             vocab_path = args.vocab
             if not vocab_path:
                 raise ValueError(
                         "Can't find a vocabulary file at path '{}'.".format(args.pretrain)
                     )
-        tokenizer = tokenizer_map[tokenizer_type](vocab_file=vocab_path, task_prefix=["Pairs:","Deprot:","Prot:"], max_size=116) #changed
+        tokenizer = tokenizer_map[tokenizer_type](vocab_file=vocab_path)
         model.config.tokenizer = tokenizer_type # type: ignore
         model.config.task_type = args.task_type # type: ignore
     else:
         if not args.tokenizer:
-            warn_msg = "This model is trained from scratch, but no \
-                tokenizer type is specified, will use simple tokenizer \
-                as default for this training."
+            warn_msg = "This model is trained from scratch, but no " \
+                   "tokenizer type is specified, will use simple tokenizer " \
+                   "as default for this training."
+            args.tokenizer = 'simple'
             logging.warning(warn_msg)
             args.tokenizer = 'simple'
         assert args.tokenizer in ('simple', 'atom', 'selfies'), \
             "{} tokenizer is not supported."
-
-        # if path to vocab file given, then use it
-        if args.vocab == '':    #added 
-            vocab_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vocab/'+args.tokenizer+'.pt') #added 
-        else:
-            vocab_path = args.vocab #added
-            
+        vocab_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vocab/'+args.tokenizer+'.txt')
         tokenizer = tokenizer_map[args.tokenizer](vocab_file=vocab_path)
-        #tokenizer.add_tokens(["Pairs:", "acidic:", "basic:"])
         config = T5Config(
             vocab_size=len(tokenizer),
             pad_token_id=tokenizer.pad_token_id,
@@ -202,71 +189,106 @@ def train(args):
             model = T5ForProperty(config, head_type=task.output_layer, num_classes=args.num_classes)
 
     os.makedirs(args.output_dir, exist_ok=True)
-    tokenizer.save_vocabulary(os.path.join(args.output_dir, 'vocab.pt'))
-    dataset = TaskPrefixDataset(
-        tokenizer, 
-        data_dir=args.data_dir,
-        prefix=task.prefix,
-        max_source_length=task.max_source_length,
-        max_target_length=task.max_target_length,
-        separate_vocab=(task.output_layer != 'seq2seq'),
-        type_path="train",
-    )
-    data_collator_padded = partial(
-        data_collator, pad_token_id=tokenizer.pad_token_id, normalize=scaler)
-
-    do_eval = os.path.exists(os.path.join(args.data_dir, 'val.source'))
-    if do_eval:
-        eval_strategy = "steps"
-        eval_iter = TaskPrefixDataset(
+    if args.task_type == 'pretrain':
+        dataset = LineByLineTextDataset(
+            tokenizer=tokenizer, 
+            file_path=os.path.join(args.data_dir,'train.txt'),
+            block_size=task.max_source_length,
+            prefix=task.prefix,
+        )
+        data_collator_padded = DataCollatorForLanguageModeling(
+            tokenizer=tokenizer, mlm=True, mlm_probability=0.15
+        )
+    else:
+        dataset = TaskPrefixDataset(
             tokenizer, 
             data_dir=args.data_dir,
             prefix=task.prefix,
             max_source_length=task.max_source_length,
             max_target_length=task.max_target_length,
             separate_vocab=(task.output_layer != 'seq2seq'),
-            type_path="val",
+            type_path="train",
         )
+        data_collator_padded = partial(
+            data_collator, pad_token_id=tokenizer.pad_token_id)
+
+    if args.task_type == 'pretrain':
+        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.txt'))
+        if do_eval:
+            eval_strategy = "steps"
+            eval_iter = LineByLineTextDataset(
+                tokenizer=tokenizer, 
+                file_path=os.path.join(args.data_dir,'val.txt'),
+                block_size=task.max_source_length,
+                prefix=task.prefix,
+            )
+        else:
+            eval_strategy = "no"
+            eval_iter = None
     else:
-        eval_strategy = "no"
-        eval_iter = None
+        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.source'))
+        if do_eval:
+            eval_strategy = "steps"
+            eval_iter = TaskPrefixDataset(
+                tokenizer, 
+                data_dir=args.data_dir,
+                prefix=task.prefix,
+                max_source_length=task.max_source_length,
+                max_target_length=task.max_target_length,
+                separate_vocab=(task.output_layer != 'seq2seq'),
+                type_path="val",
+            )
+        else:
+            logging.warning("No evaluation dataset found!")
+            eval_strategy = "no"
+            eval_iter = None
 
-    if task.output_layer == 'seq2seq':
+    if task.output_layer == 'regression':
+        compute_metrics = CalMSELoss
+    elif args.task_type == 'pretrain':
+        compute_metrics = None  
+        # We don't want any extra metrics for faster pretraining
+    else:
         compute_metrics = AccuracyMetrics
-    elif task.output_layer == 'regression':
-        compute_metrics = partial(CalMSELoss, scaler=scaler)
-    else: # Classification
-        compute_metrics = F1_AUCMetrics
 
+    run_name = args.run_name or f"{current_time}_{args.task_type}"
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         overwrite_output_dir=True,
         do_train=True,
-        evaluation_strategy=eval_strategy,
+        eval_strategy=eval_strategy,
+        save_strategy=eval_strategy,
         num_train_epochs=args.num_epoch,
         per_device_train_batch_size=args.batch_size,
         logging_steps=args.log_step,
         per_device_eval_batch_size=args.batch_size,
-        save_steps=10000,
+        eval_accumulation_steps=100,
+        save_steps=args.eval_steps*2,
+        eval_steps=args.eval_steps,
         save_total_limit=5,
         learning_rate=args.init_lr,
         prediction_loss_only=(compute_metrics is None),
-        #dataloader_num_workers = int(os.environ["SLURM_CPUS_PER_TASK"]),
-        #dataloader_pin_memory = True
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        report_to="wandb",  # enable logging to W&B
+        run_name=run_name,
     )
 
-    trainer = EarlyStopTrainer(
+    trainer = Trainer(
         model=model,
+        tokenizer=tokenizer,
         args=training_args,
         data_collator=data_collator_padded,
         train_dataset=dataset,
         eval_dataset=eval_iter,
         compute_metrics=compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=15)] if do_eval else [],
     )
 
     trainer.train()
-    print(args)
     print("logging dir: {}".format(training_args.logging_dir))
+    tokenizer.save_vocabulary(args.output_dir)
     trainer.save_model(args.output_dir)
 
 

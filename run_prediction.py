@@ -23,7 +23,6 @@ from scipy.stats import pearsonr
 import glob
 import pdb
 
-
 def add_args(parser):
     parser.add_argument(
         "--data_dir",
@@ -74,17 +73,32 @@ def add_args(parser):
         type=int,
         help="Batch size for training and validation.",
     )
-    parser.add_argument(
+        parser.add_argument(
         "--best_cp",
         default=False,
         type=bool,
         help="predict the best step based on lowest loss",
     )
 
+
 def predict(args):
     lg = rdkit.RDLogger.logger()  
     lg.setLevel(rdkit.RDLogger.CRITICAL) 
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    config = T5Config.from_pretrained(args.model_dir)
+    task = T5ChemTasks[config.task_type]
+    tokenizer_type = getattr(config, "tokenizer")
+
+    if tokenizer_type == "simple":
+        Tokenizer = SimpleTokenizer
+    elif tokenizer_type == 'atom':
+        Tokenizer = AtomTokenizer
+    else:
+        Tokenizer = SelfiesTokenizer
+
+    tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.txt'))
 
     if os.path.isfile(args.data_dir):
         args.data_dir, base = os.path.split(args.data_dir)
@@ -92,7 +106,7 @@ def predict(args):
     else:
         base = "test"
 
-    # make sure the inputs are rdkit canonical SMILES 
+        # make sure the inputs are rdkit canonical SMILES 
     with open(args.data_dir +'/'+ base+ '.source', 'r') as smiles_file:
         smiles_list = [line.rstrip() for line in smiles_file]
     smiles_df = pd.DataFrame(smiles_list, columns=['source'])
@@ -120,12 +134,6 @@ def predict(args):
     Tokenizer = tokenizer_map.get(tokenizer_type)
     tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.pt'))
 
-    #if os.path.isfile(args.data_dir):
-    #    args.data_dir, base = os.path.split(args.data_dir)
-    #    base = base.split('.')[0]
-    #else:
-    #    base = "test"
-
     testset = TaskPrefixDataset(tokenizer, data_dir=args.data_dir,
                                     prefix=args.prefix or task.prefix,
                                     max_source_length=task.max_source_length,
@@ -139,8 +147,8 @@ def predict(args):
         collate_fn=data_collator_padded
     )
 
+    targets = []
     if task.output_layer == 'seq2seq':
-        targets = []
         task_specific_params = {
             "Reaction": {
             "early_stopping": True,
@@ -150,7 +158,7 @@ def predict(args):
             "decoder_start_token_id": tokenizer.pad_token_id,
             }
         }
-        # allow possibility to predict using best checkpoint
+                # allow possibility to predict using best checkpoint
         if args.best_cp == True:
             best_files = glob.glob(args.model_dir +'/best_*/')
             model = T5ForConditionalGeneration.from_pretrained(best_files[0])
@@ -173,7 +181,7 @@ def predict(args):
             for i,pred in enumerate(outputs):
                 prod = tokenizer.decode(pred, skip_special_tokens=True,
                         clean_up_tokenization_spaces=False)
-                predictions[i % args.num_preds].append(prod)
+                predictions[i % args.num_preds].append(prod.replace(" ",""))
 
     else:
         num_targets = testset[0]['decoder_input_ids'].shape[-1]

@@ -13,7 +13,6 @@ from transformers.trainer_utils import PredictionOutput
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import f1_score, roc_auc_score
 
-
 class TaskSettings(NamedTuple):
     prefix: str
     max_source_length: int
@@ -52,13 +51,15 @@ class LineByLineTextDataset(Dataset):
         
     def __getitem__(self, idx: int) -> torch.Tensor:
         line: str = linecache.getline(self._file_path, idx + 1).strip()
-        sample: BatchEncoding = self.tokenizer(
+        sample = self.tokenizer(
                         self.prefix+line,
                         max_length=self.max_length,
                         padding="do_not_pad",
                         truncation=True,
                         return_tensors='pt',
                     )
+        # Assert sample is BatchEncoding
+        assert isinstance(sample, BatchEncoding) # Should be a batchEncoding.
         return sample['input_ids'].squeeze(0)
       
     def __len__(self) -> int:
@@ -104,8 +105,8 @@ class TaskPrefixDataset(Dataset):
         target_line: str = linecache.getline(self._target_path, idx + 1).strip()
         if self.sep_vocab:
             try:
-                target_value: List[float] = [float(x) for x in target_line.split(',')]
-                target_ids: torch.Tensor = torch.Tensor(target_value)
+                target_value: float = float(target_line)
+                target_ids: torch.Tensor = torch.Tensor([target_value])
             except TypeError:
                 print("The target should be a number, \
                         not {}".format(target_line))
@@ -127,7 +128,6 @@ class TaskPrefixDataset(Dataset):
     def sort_key(self, ex: BatchEncoding) -> int:
         """ Sort using length of source sentences. """
         return len(ex['input_ids'])
-
 
 class PropertyPretrainDataset(Dataset):
     def __init__(
@@ -174,7 +174,8 @@ class PropertyPretrainDataset(Dataset):
         return len(ex['input_ids'])
 
 
-def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Optional[MinMaxScaler] = None) -> Dict[str, torch.Tensor]:
+
+def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Optional[MinMaxScaler] = None) -> Dicr[str, torch.Tensor]:
     whole_batch: Dict[str, torch.Tensor] = {}
     ex: BatchEncoding = batch[0]
     for key in ex.keys():
@@ -194,8 +195,8 @@ def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Opti
 
 
 def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = None) -> Dict[str, float]:
-    predictions: np.ndarray = model_output.predictions # type: ignore
-    label_ids: np.ndarray = model_output.label_ids # type: ignore
+    predictions: np.ndarray = model_output.predictions[0] # type: ignore
+    label_ids: np.ndarray = model_output.label_ids.squeeze() # type: ignore
     if scaler:
         predictions = scaler.inverse_transform(predictions)
         label_ids = scaler.inverse_transform(label_ids)
@@ -204,9 +205,10 @@ def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = 
 
 def AccuracyMetrics(model_output: PredictionOutput) -> Dict[str, float]:
     label_ids: np.ndarray = model_output.label_ids # type: ignore
-    predictions: np.ndarray = model_output.predictions # type: ignore
-    correct: int = np.all(predictions==label_ids, 1).sum()
-    return {'accuracy': correct/len(predictions)}
+    predictions: np.ndarray = np.argmax(model_output.predictions[0], axis=-1)
+    mask = label_ids != -100
+    masked_equal = (predictions.reshape(len(label_ids), -1) == label_ids) | ~mask
+    return {'accuracy': np.all(masked_equal, axis=1).mean()}
 
 def F1_AUCMetrics(model_output: PredictionOutput) -> Dict[str, float]:
     label_ids: np.ndarray = model_output.label_ids # type: ignore
