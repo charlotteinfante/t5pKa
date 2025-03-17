@@ -85,7 +85,11 @@ class MolTokenizer(ABC, PreTrainedTokenizer):
             cur_added_len: int = len(task_prefixs) + 9 # placeholder for smiles tokens
             for i in range(cur_added_len, extra_to_add):
                 task_prefixs.append('<extra_task_{}>'.format(str(i)))
-            self.add_tokens(['<extra_token_'+str(i)+'>' for i in range(9)]+task_prefixs+['>'], special_tokens=True)
+            #self.add_tokens(['<extra_token_'+str(i)+'>' for i in range(9)]+task_prefixs+['>'], special_tokens=True)
+            # Add placeholders as regular tokens
+            self.add_tokens(['<extra_token_'+str(i)+'>' for i in range(9)], special_tokens=True)
+            # Add TASK_PREFIX as special tokens (this ensures they're treated as whole tokens)
+            self.add_special_tokens({'additional_special_tokens': task_prefixs})
 
     @property
     def vocab_size(self) -> int:
