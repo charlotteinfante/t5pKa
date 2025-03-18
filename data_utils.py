@@ -175,7 +175,7 @@ class PropertyPretrainDataset(Dataset):
 
 
 
-def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Optional[MinMaxScaler] = None) -> Dicr[str, torch.Tensor]:
+def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Optional[MinMaxScaler] = None) -> Dict[str, torch.Tensor]:
     whole_batch: Dict[str, torch.Tensor] = {}
     ex: BatchEncoding = batch[0]
     for key in ex.keys():
@@ -198,7 +198,9 @@ def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = 
     predictions: np.ndarray = model_output.predictions[0] # type: ignore
     label_ids: np.ndarray = model_output.label_ids.squeeze() # type: ignore
     if scaler:
-        predictions = scaler.inverse_transform(predictions)
+        predictions = np.array(predictions)  # Ensure it's a NumPy array
+        predictions = scaler.inverse_transform(predictions.reshape(-1, 1))
+        label_ids = np.array(label_ids).reshape(-1, 1)
         label_ids = scaler.inverse_transform(label_ids)
     loss: float = ((predictions - label_ids)**2).mean().item()
     return {'mse_loss': loss}
