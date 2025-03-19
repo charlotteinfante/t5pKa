@@ -197,7 +197,7 @@ def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Opti
 def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = None) -> Dict[str, float]:
     predictions: np.ndarray = model_output.predictions[0] # type: ignore
     label_ids: np.ndarray = model_output.label_ids.squeeze() # type: ignore
-    if scaler:
+    if scaler is not None:
         predictions = np.array(predictions)  # Ensure it's a NumPy array
         predictions = scaler.inverse_transform(predictions.reshape(-1, 1))
         label_ids = np.array(label_ids).reshape(-1, 1)
