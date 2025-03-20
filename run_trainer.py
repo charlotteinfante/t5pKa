@@ -21,6 +21,7 @@ from mol_tokenizers import (AtomTokenizer, MolTokenizer, SelfiesTokenizer,
                             SimpleTokenizer)
 from transformers import Trainer, TrainingArguments, EarlyStoppingCallback 
 from datetime import datetime
+from trainer import EarlyStopTrainer
 
 tokenizer_map: Dict[str, MolTokenizer] = {
     'simple': SimpleTokenizer,  # type: ignore
@@ -59,7 +60,7 @@ def add_args(parser):
         default='',
         help="Path to a pretrained model. If not given, we will train from scratch",
     )
-        parser.add_argument(
+    parser.add_argument(
         "--pretrain_best_cp",
         default=False,
         type=bool,
@@ -89,7 +90,6 @@ def add_args(parser):
     )
     parser.add_argument(
         "--eval_steps",
-        default=5000,
         type=int,
         help="Number of steps between each evaluation.",
     )
@@ -128,10 +128,29 @@ def train(args):
     random.seed(args.random_seed)
     torch.backends.cudnn.deterministic = True
 
+    # if eval_steps not specified, then do the same amount as log_steps
+    if args.eval_steps is None:
+        args.eval_steps = args.log_step
+
     assert args.task_type in T5ChemTasks, \
         "only {} are currenly supported, but got {}".\
             format(tuple(T5ChemTasks.keys()), args.task_type)
     task: TaskSettings = T5ChemTasks[args.task_type]
+
+    # add scaling for regression tasks only
+    if args.task_type in ['regression','macropka','micropka']:
+        if os.path.isfile(os.path.join(args.data_dir,'MinMaxScaler.gz')):
+            scaler = joblib.load(os.path.join(args.data_dir,'MinMaxScaler.gz'))
+        else:
+            all_targets = np.loadtxt(os.path.join(args.data_dir,'train.target'),delimiter=',')
+            if len(all_targets.shape) == 1:
+                all_targets = all_targets.reshape(-1, 1)
+            scaler = MinMaxScaler(clip=True)
+            scaler.fit(all_targets)
+            joblib.dump(scaler, os.path.join(args.data_dir,'MinMaxScaler.gz'))
+        args.num_classes = scaler.n_features_in_
+    else:
+        scaler = None
 
     # Get current time
     current_time = datetime.now().strftime("%m%d_%H%M")
@@ -149,14 +168,19 @@ def train(args):
         if not hasattr(model.config, 'tokenizer'):
             logging.warning("No tokenizer type detected, will use SimpleTokenizer as default")
         tokenizer_type = getattr(model.config, "tokenizer", 'simple')
-        vocab_path = os.path.join(args.pretrain, 'vocab.txt')
+        # add the possibility to use best check point if present in pretrained model
+        if args.pretrain_best_cp == True:
+            pretrain_directory = glob.glob(args.pretrain)[0]
+            vocab_path = os.path.join(pretrain_directory, '..', 'vocab.txt')
+        else:
+            vocab_path = os.path.join(args.pretrain, 'vocab.txt')
         if not os.path.isfile(vocab_path):
             vocab_path = args.vocab
             if not vocab_path:
                 raise ValueError(
                         "Can't find a vocabulary file at path '{}'.".format(args.pretrain)
                     )
-        tokenizer = tokenizer_map[tokenizer_type](vocab_file=vocab_path)
+        tokenizer = tokenizer_map[tokenizer_type](vocab_file=vocab_path, task_prefix=["Pairs:","Deprot:","Prot:"], max_size=116) #changed
         model.config.tokenizer = tokenizer_type # type: ignore
         model.config.task_type = args.task_type # type: ignore
     else:
@@ -169,7 +193,12 @@ def train(args):
             args.tokenizer = 'simple'
         assert args.tokenizer in ('simple', 'atom', 'selfies'), \
             "{} tokenizer is not supported."
-        vocab_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vocab/'+args.tokenizer+'.txt')
+                # if path to vocab file given, then use it
+        if args.vocab == '':    #added 
+            vocab_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vocab/'+args.tokenizer+'.txt') #added 
+        else:
+            vocab_path = args.vocab #added
+
         tokenizer = tokenizer_map[args.tokenizer](vocab_file=vocab_path)
         config = T5Config(
             vocab_size=len(tokenizer),
@@ -210,15 +239,15 @@ def train(args):
             type_path="train",
         )
         data_collator_padded = partial(
-            data_collator, pad_token_id=tokenizer.pad_token_id)
+            data_collator, pad_token_id=tokenizer.pad_token_id, normalize=scaler)
 
     if args.task_type == 'pretrain':
-        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.txt'))
+        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.source'))
         if do_eval:
             eval_strategy = "steps"
             eval_iter = LineByLineTextDataset(
                 tokenizer=tokenizer, 
-                file_path=os.path.join(args.data_dir,'val.txt'),
+                file_path=os.path.join(args.data_dir,'val.source'),
                 block_size=task.max_source_length,
                 prefix=task.prefix,
             )
@@ -244,10 +273,11 @@ def train(args):
             eval_iter = None
 
     if task.output_layer == 'regression':
-        compute_metrics = CalMSELoss
+        compute_metrics = partial(CalMSELoss, scaler=scaler)
     elif args.task_type == 'pretrain':
         compute_metrics = None  
-        # We don't want any extra metrics for faster pretraining
+    elif args.task_type == 'classification':
+        compute_metrics = F1_AUCMetrics
     else:
         compute_metrics = AccuracyMetrics
 
@@ -257,21 +287,22 @@ def train(args):
         overwrite_output_dir=True,
         do_train=True,
         eval_strategy=eval_strategy,
-        save_strategy=eval_strategy,
+        #save_strategy=eval_strategy,
         num_train_epochs=args.num_epoch,
         per_device_train_batch_size=args.batch_size,
         logging_steps=args.log_step,
         per_device_eval_batch_size=args.batch_size,
-        eval_accumulation_steps=100,
-        save_steps=args.eval_steps*2,
+        #eval_accumulation_steps=100,
+        #save_steps=10000,
+        save_steps=args.eval_steps,
         eval_steps=args.eval_steps,
         save_total_limit=5,
         learning_rate=args.init_lr,
         prediction_loss_only=(compute_metrics is None),
-        load_best_model_at_end=True,
+        #load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
-        greater_is_better=False,
-        report_to="wandb",  # enable logging to W&B
+        #greater_is_better=False,
+        #report_to="wandb",  # enable logging to W&B
         run_name=run_name,
     )
 
@@ -283,7 +314,7 @@ def train(args):
         train_dataset=dataset,
         eval_dataset=eval_iter,
         compute_metrics=compute_metrics,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=15)] if do_eval else [],
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=50)] if do_eval else [],
     )
 
     trainer.train()
