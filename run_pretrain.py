@@ -124,7 +124,7 @@ def train(args):
         if not hasattr(model.config, 'tokenizer'):
             logging.warning("No tokenizer type detected, will use SimpleTokenizer as default")
         tokenizer_type = getattr(model.config, "tokenizer", 'simple')
-        vocab_path = os.path.join(args.pretrain, 'vocab.pt')
+        vocab_path = os.path.join(args.pretrain, 'vocab.txt')
         if not os.path.isfile(vocab_path):
             vocab_path = args.vocab
             if not vocab_path:
@@ -165,7 +165,7 @@ def train(args):
             model = T5ForProperty(config, head_type='regression', num_classes=dim)
 
     os.makedirs(args.output_dir, exist_ok=True)
-    tokenizer.save_vocabulary(os.path.join(args.output_dir, 'vocab.pt'))
+    tokenizer.save_vocabulary(os.path.join(args.output_dir, 'vocab.txt'))
     for i,folder in enumerate(args.data_dir):
         if task_type == 'seq2seq': # sequence-to-sequence mask-filling pretraining
             dataset = LineByLineTextDataset(
