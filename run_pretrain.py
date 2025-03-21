@@ -143,7 +143,7 @@ def train(args):
             args.tokenizer = 'simple'
         assert args.tokenizer in ('simple', 'atom', 'selfies'), \
             "{} tokenizer is not supported."
-        vocab_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vocab/'+args.tokenizer+'.pt')
+        vocab_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vocab/'+args.tokenizer+'.txt')
         tokenizer = tokenizer_map[args.tokenizer](vocab_file=vocab_path)
         config = T5Config(
             vocab_size=len(tokenizer),
@@ -165,7 +165,6 @@ def train(args):
             model = T5ForProperty(config, head_type='regression', num_classes=dim)
 
     os.makedirs(args.output_dir, exist_ok=True)
-    tokenizer.save_vocabulary(os.path.join(args.output_dir, 'vocab.txt'))
     for i,folder in enumerate(args.data_dir):
         if task_type == 'seq2seq': # sequence-to-sequence mask-filling pretraining
             dataset = LineByLineTextDataset(
@@ -219,7 +218,7 @@ def train(args):
             output_dir=args.output_dir,
             overwrite_output_dir=True,
             do_train=True,
-            evaluation_strategy=eval_strategy,
+            eval_strategy=eval_strategy,
             num_train_epochs=1,
             per_device_train_batch_size=args.batch_size,
             logging_steps=1000,
@@ -248,6 +247,7 @@ def train(args):
         round_to_save = len(args.data_dir)//args.save_total_limit or len(args.data_dir) # in case = 0
         if (i+1) % round_to_save == 0:
             trainer.save_model(os.path.join(args.output_dir, str(i+1)))
+    tokenizer.save_vocabulary(args.output_dir)
     trainer.save_model(args.output_dir) # always save the last checkpoint
 
 if __name__ == "__main__":
