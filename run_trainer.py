@@ -255,7 +255,7 @@ def train(args):
             eval_strategy = "no"
             eval_iter = None
     else:
-        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.txt'))
+        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.source'))
         if do_eval:
             eval_strategy = "steps"
             eval_iter = TaskPrefixDataset(
