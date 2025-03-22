@@ -242,12 +242,12 @@ def train(args):
             data_collator, pad_token_id=tokenizer.pad_token_id, normalize=scaler)
 
     if args.task_type == 'pretrain':
-        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.source'))
+        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.txt'))
         if do_eval:
             eval_strategy = "steps"
             eval_iter = LineByLineTextDataset(
                 tokenizer=tokenizer, 
-                file_path=os.path.join(args.data_dir,'val.source'),
+                file_path=os.path.join(args.data_dir,'val.txt'),
                 block_size=task.max_source_length,
                 prefix=task.prefix,
             )
@@ -255,7 +255,7 @@ def train(args):
             eval_strategy = "no"
             eval_iter = None
     else:
-        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.source'))
+        do_eval = os.path.exists(os.path.join(args.data_dir, 'val.txt'))
         if do_eval:
             eval_strategy = "steps"
             eval_iter = TaskPrefixDataset(
