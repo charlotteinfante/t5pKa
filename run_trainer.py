@@ -293,7 +293,7 @@ def train(args):
         logging_steps=args.log_step,
         per_device_eval_batch_size=args.batch_size,
         #eval_accumulation_steps=100,
-        #save_steps=10000,
+        #save_steps=500,
         save_steps=args.eval_steps,
         eval_steps=args.eval_steps,
         save_total_limit=5,
@@ -314,7 +314,7 @@ def train(args):
         train_dataset=dataset,
         eval_dataset=eval_iter,
         compute_metrics=compute_metrics,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=50)] if do_eval else [],
+        #callbacks=[EarlyStoppingCallback(early_stopping_patience=50)] if do_eval else [],
     )
 
     trainer.train()
