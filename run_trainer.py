@@ -273,7 +273,9 @@ def train(args):
             eval_iter = None
 
     if task.output_layer == 'regression':
-        compute_metrics = partial(CalMSELoss, scaler=scaler)
+        #compute_metrics = partial(CalMSELoss)
+        compute_metrics = None
+        #compute_metrics = partial(CalMSELoss, scaler=scaler)
     elif args.task_type == 'pretrain':
         compute_metrics = None  
     elif args.task_type == 'classification':
