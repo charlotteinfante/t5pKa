@@ -102,7 +102,6 @@ def predict(args):
 
 
     all_predictions, all_targets = [], []
-    #breakpoint()
     for i in range(1,11):
         # option to chose the best checkpoint to run prediction (read in config)
         if args.best_cp == True:
@@ -118,7 +117,7 @@ def predict(args):
         tokenizer_type = getattr(config, "tokenizer")
         tokenizer_map = {"simple": SimpleTokenizer,"atom": AtomTokenizer, "selfies": SelfiesTokenizer }
         Tokenizer = tokenizer_map.get(tokenizer_type)
-        tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, str(i)+'/vocab.pt'))
+        tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, str(i)+'/vocab.txt'))
 
         if os.path.isfile(args.data_dir):
             args.data_dir, base = os.path.split(args.data_dir)
@@ -144,10 +143,8 @@ def predict(args):
                 batch_size=args.batch_size,
                 collate_fn=data_collator_padded
         )
-
         num_targets = testset[0]['decoder_input_ids'].shape[-1]
-        predictions = np.zeros((len(testset), num_targets))
-        targets = np.zeros_like(predictions)
+        predictions, targets = [], []
         if args.best_cp == True:
             best_files = glob.glob(args.model_dir + str(i) +'/best_*/')
             model = T5ForProperty.from_pretrained(best_files[0])
@@ -156,26 +153,31 @@ def predict(args):
         model.eval()
         model = model.to(device)
 
-        for i, batch in enumerate(tqdm(test_loader, desc="prediction")):
+        for batch in tqdm(test_loader, desc = 'prediction'):
             for k, v in batch.items():
                 if isinstance(v, torch.Tensor):
                     batch[k] = v.to(device)
             with torch.no_grad():
-                outputs = model(**batch) # Pull out a single example. Check if that works. 
-                cur_start = i*args.batch_size #What does this do?
-                cur_end = cur_start + outputs.logits.shape[0]
-                targets[cur_start : cur_end] = batch['labels'].detach().cpu().numpy()
-                logits = outputs.logits
-                predictions[cur_start : cur_end] = logits.detach().cpu().numpy()
+                outputs = model(**batch)
+            if task.output_layer == 'classification':
+                pred_val = torch.argmax(outputs.logits, axis=-1)
+            else:
+                pred_val = outputs.logits
+            targets.extend(batch['labels'].view(-1).to(pred_val).tolist())
+            predictions.extend((pred_val).tolist())
+            #predictions = np.concatenate([predictions, pred_val.cpu().numpy()]).reshape(-1,1)
+            #predictions = scaler.inverse_transform(predictions)
+        test_df = pd.DataFrame(targets, columns=['target'])
         all_targets.append(targets)
+        predictions = np.array(predictions)
+        predictions = predictions.reshape(-1,1)
         predictions = scaler.inverse_transform(predictions)
         all_predictions.append(predictions)
 
-    d = {'targets': all_targets[0].flatten()}
+    d = {'targets': all_targets[0]}
     df = pd.DataFrame(data=d)
     for i in range(len(all_predictions)):
         df['prediction_'+str(i)] = all_predictions[i]
-    
     
     avg, std, scaffold_avg, scaffold_std, random_avg, random_std = [], [], [], [], [], []
     for i in range(len(df)):
@@ -200,12 +202,12 @@ def predict(args):
 
     r_value, prob = pearsonr(df['targets'], df['average'])
 
-    print('RMSE:', mean_squared_error(df['targets'], df['average'], squared=False))
+    print('RMSE:', mean_squared_error(df['targets'], df['average']))
     print('MAE:', mean_absolute_error(df['targets'], df['average']))
     print('r2:', r2_score(df['targets'], df['average']))
     print('r:', r_value)
-    print('RMSE random split:', mean_squared_error(df['targets'], df['random split average'], squared=False))
-    print('RMSE scaffold split:', mean_squared_error(df['targets'], df['scaffold split average'], squared=False))
+    print('RMSE random split:', mean_squared_error(df['targets'], df['random split average']))
+    print('RMSE scaffold split:', mean_squared_error(df['targets'], df['scaffold split average']))
 
     if not args.prediction:
         args.prediction = os.path.join(args.model_dir, 'predictions_'+base+'.csv')
