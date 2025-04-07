@@ -21,7 +21,6 @@ from mol_tokenizers import AtomTokenizer, SelfiesTokenizer, SimpleTokenizer
 from sklearn.metrics import f1_score, roc_auc_score
 from scipy.stats import pearsonr
 import glob
-import pdb
 
 def add_args(parser):
     parser.add_argument(
@@ -73,7 +72,7 @@ def add_args(parser):
         type=int,
         help="Batch size for training and validation.",
     )
-        parser.add_argument(
+    parser.add_argument(
         "--best_cp",
         default=False,
         type=bool,
@@ -132,7 +131,7 @@ def predict(args):
     tokenizer_type = getattr(config, "tokenizer")
     tokenizer_map = {"simple": SimpleTokenizer,"atom": AtomTokenizer, "selfies": SelfiesTokenizer }
     Tokenizer = tokenizer_map.get(tokenizer_type)
-    tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.pt'))
+    tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.txt'))
 
     testset = TaskPrefixDataset(tokenizer, data_dir=args.data_dir,
                                     prefix=args.prefix or task.prefix,
@@ -207,7 +206,8 @@ def predict(args):
                 cur_end = cur_start + outputs.logits.shape[0]
                 targets[cur_start : cur_end] = batch['labels'].detach().cpu().numpy()
                 if task.output_layer == 'regression':
-                    logits = outputs.logits 
+                    logits = outputs.logits
+                    logits = logits.reshape(-1,1) 
                 elif outputs.logits.shape[-1] == 2: # binary classification
                     logits = outputs.logits[:,-1:]
                     binary_classification = True
@@ -230,7 +230,6 @@ def predict(args):
             invalid_smiles += (test_df['prediction_{}'.format(i)] == '').sum()
             print('Top-{}: {:.1f}% || Invalid {:.2f}%'.format(i, correct/len(test_df)*100, \
                 invalid_smiles/len(test_df)/i*100))
-    
     
     
     elif task.output_layer == 'regression':
