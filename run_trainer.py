@@ -13,7 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 from transformers import (DataCollatorForLanguageModeling, T5Config,
                           T5ForConditionalGeneration, TrainingArguments)
 
-from data_utils import (AccuracyMetrics, CalMSELoss, LineByLineTextDataset,
+from data_utils import (AccuracyMetrics, CalMSELoss, CalMSELoss_normalized, combined_mse_metrics, LineByLineTextDataset,
                         T5ChemTasks, TaskPrefixDataset, TaskSettings,
                         data_collator, F1_AUCMetrics)
 from model import T5ForProperty
@@ -121,7 +121,7 @@ def add_args(parser):
 def train(args):
     print(args)
 
-    os.environ["WANDB_PROJECT"]="T5Chem"
+    os.environ["WANDB_PROJECT"]="T5Chem_pKa"
     torch.cuda.manual_seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
@@ -273,9 +273,10 @@ def train(args):
             eval_iter = None
 
     if task.output_layer == 'regression':
-        #compute_metrics = partial(CalMSELoss)
-        compute_metrics = None
+        #compute_metrics = partial(CalMSELoss_normalized)
+        #compute_metrics = None
         #compute_metrics = partial(CalMSELoss, scaler=scaler)
+        compute_metrics = partial(combined_mse_metrics)
     elif args.task_type == 'pretrain':
         compute_metrics = None  
     elif args.task_type == 'classification':
@@ -292,10 +293,10 @@ def train(args):
         #save_strategy=eval_strategy,
         num_train_epochs=args.num_epoch,
         per_device_train_batch_size=args.batch_size,
+        logging_strategy="steps",
         logging_steps=args.log_step,
         per_device_eval_batch_size=args.batch_size,
         #eval_accumulation_steps=100,
-        #save_steps=500,
         save_steps=args.eval_steps,
         eval_steps=args.eval_steps,
         save_total_limit=5,
@@ -304,7 +305,7 @@ def train(args):
         #load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         #greater_is_better=False,
-        #report_to="wandb",  # enable logging to W&B
+        report_to="wandb",  # enable logging to W&B
         run_name=run_name,
     )
 
@@ -320,6 +321,7 @@ def train(args):
     )
 
     trainer.train()
+    print(args)
     print("logging dir: {}".format(training_args.logging_dir))
     tokenizer.save_vocabulary(args.output_dir)
     trainer.save_model(args.output_dir)

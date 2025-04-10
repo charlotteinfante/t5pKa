@@ -12,6 +12,7 @@ from transformers import BatchEncoding, PreTrainedTokenizer
 from transformers.trainer_utils import PredictionOutput
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import f1_score, roc_auc_score
+import pdb
 
 class TaskSettings(NamedTuple):
     prefix: str
@@ -195,6 +196,7 @@ def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Opti
 
 
 def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = None) -> Dict[str, float]:
+    #breakpoint()
     predictions: np.ndarray = model_output.predictions[0] # type: ignore
     label_ids: np.ndarray = model_output.label_ids.squeeze() # type: ignore
     if scaler is not None:
@@ -204,6 +206,24 @@ def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = 
         label_ids = scaler.inverse_transform(label_ids)
     loss: float = ((predictions - label_ids)**2).mean().item()
     return {'mse_loss': loss}
+
+def CalMSELoss_normalized(model_output: PredictionOutput) -> Dict[str, float]:
+    predictions: np.ndarray = model_output.predictions[0] # type: ignore
+    label_ids: np.ndarray = model_output.label_ids.squeeze() # type: ignore
+    loss: float = ((predictions - label_ids)**2).mean().item()
+    return {'mse_loss_normalized': loss}
+
+def combined_mse_metrics(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = None) -> Dict[str, float]:
+    # Compute MSE loss on normalized outputs
+    normalized_metrics = CalMSELoss_normalized(model_output)
+    # Compute MSE loss on inverse-transformed (original scale) outputs
+    inv_scaled_metrics = CalMSELoss(model_output, scaler=scaler)
+    # Combine both metrics into one dictionary
+    combined_metrics = {
+        'mse_loss_normalized': normalized_metrics['mse_loss'],
+        'mse_loss_inv_scaled': inv_scaled_metrics['mse_loss']
+    }
+    return combined_metrics
 
 def AccuracyMetrics(model_output: PredictionOutput) -> Dict[str, float]:
     label_ids: np.ndarray = model_output.label_ids # type: ignore
