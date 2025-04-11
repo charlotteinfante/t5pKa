@@ -196,11 +196,12 @@ def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Opti
 def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = None) -> Dict[str, float]:
     predictions: np.ndarray = model_output.predictions # type: ignore
     label_ids: np.ndarray = model_output.label_ids # type: ignore
+    loss_unscaled: float = ((predictions - label_ids)**2).mean().item()
     if scaler:
         predictions = scaler.inverse_transform(predictions)
         label_ids = scaler.inverse_transform(label_ids)
     loss: float = ((predictions - label_ids)**2).mean().item()
-    return {'mse_loss': loss}
+    return {'mse_loss': loss, 'mse_loss_unscaled':loss_unscaled}
 
 def AccuracyMetrics(model_output: PredictionOutput) -> Dict[str, float]:
     label_ids: np.ndarray = model_output.label_ids # type: ignore
