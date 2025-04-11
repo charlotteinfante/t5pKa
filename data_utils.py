@@ -199,31 +199,14 @@ def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = 
     #breakpoint()
     predictions: np.ndarray = model_output.predictions[0] # type: ignore
     label_ids: np.ndarray = model_output.label_ids.squeeze() # type: ignore
+    loss_no_scale: float = ((predictions - label_ids)**2).mean().item()
     if scaler is not None:
         predictions = np.array(predictions)  # Ensure it's a NumPy array
         predictions = scaler.inverse_transform(predictions.reshape(-1, 1))
         label_ids = np.array(label_ids).reshape(-1, 1)
         label_ids = scaler.inverse_transform(label_ids)
     loss: float = ((predictions - label_ids)**2).mean().item()
-    return {'mse_loss': loss}
-
-def CalMSELoss_normalized(model_output: PredictionOutput) -> Dict[str, float]:
-    predictions: np.ndarray = model_output.predictions[0] # type: ignore
-    label_ids: np.ndarray = model_output.label_ids.squeeze() # type: ignore
-    loss: float = ((predictions - label_ids)**2).mean().item()
-    return {'mse_loss_normalized': loss}
-
-def combined_mse_metrics(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = None) -> Dict[str, float]:
-    # Compute MSE loss on normalized outputs
-    normalized_metrics = CalMSELoss_normalized(model_output)
-    # Compute MSE loss on inverse-transformed (original scale) outputs
-    inv_scaled_metrics = CalMSELoss(model_output, scaler=scaler)
-    # Combine both metrics into one dictionary
-    combined_metrics = {
-        'mse_loss_normalized': normalized_metrics['mse_loss'],
-        'mse_loss_inv_scaled': inv_scaled_metrics['mse_loss']
-    }
-    return combined_metrics
+    return {'mse_loss': loss, 'mse_loss_no_scale':loss_no_scale}
 
 def AccuracyMetrics(model_output: PredictionOutput) -> Dict[str, float]:
     label_ids: np.ndarray = model_output.label_ids # type: ignore
