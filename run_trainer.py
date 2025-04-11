@@ -13,7 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 from transformers import (DataCollatorForLanguageModeling, T5Config,
                           T5ForConditionalGeneration, TrainingArguments)
 
-from data_utils import (AccuracyMetrics, CalMSELoss, CalMSELoss_normalized, combined_mse_metrics, LineByLineTextDataset,
+from data_utils import (AccuracyMetrics, CalMSELoss, LineByLineTextDataset,
                         T5ChemTasks, TaskPrefixDataset, TaskSettings,
                         data_collator, F1_AUCMetrics)
 from model import T5ForProperty
@@ -121,7 +121,7 @@ def add_args(parser):
 def train(args):
     print(args)
 
-    os.environ["WANDB_PROJECT"]="T5Chem"
+    os.environ["WANDB_PROJECT"]="T5Chem_pKa"
     torch.cuda.manual_seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
