@@ -13,7 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 from transformers import (DataCollatorForLanguageModeling, T5Config,
                           T5ForConditionalGeneration, TrainingArguments)
 
-from data_utils import (AccuracyMetrics, CalMSELoss, LineByLineTextDataset,
+from data_utils import (AccuracyMetrics, CalMSELoss, CalMSELoss_normalized, combined_mse_metrics, LineByLineTextDataset,
                         T5ChemTasks, TaskPrefixDataset, TaskSettings,
                         data_collator, F1_AUCMetrics)
 from model import T5ForProperty
@@ -274,8 +274,9 @@ def train(args):
 
     if task.output_layer == 'regression':
         #compute_metrics = partial(CalMSELoss)
-        compute_metrics = None
-        #compute_metrics = partial(CalMSELoss, scaler=scaler)
+        #compute_metrics = None
+        compute_metrics = partial(CalMSELoss, scaler=scaler)
+        #compute_metrics = partial(combined_mse_metrics)
     elif args.task_type == 'pretrain':
         compute_metrics = None  
     elif args.task_type == 'classification':
