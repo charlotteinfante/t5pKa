@@ -254,3 +254,18 @@ class T5ForProperty(T5ForConditionalGeneration):
         for name, param in self.named_parameters():
             if not (name.startswith('lm_head')):
                 param.requires_grad = False
+    
+        # Override _init_weights to properly handle nn.Sequential in lm_head
+    def _init_weights(self, module):
+        if isinstance(module, nn.Sequential):
+            # Iterate through submodules and initialize them recursively.
+            for submodule in module:
+                self._init_weights(submodule)
+        elif isinstance(module, nn.Linear):
+            # The following line uses the T5 config's initializer factor.
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_factor * 1.0)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        else:
+            # For other modules, call parent initialization if available.
+            super()._init_weights(module)

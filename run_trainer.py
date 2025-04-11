@@ -13,7 +13,7 @@ from sklearn.preprocessing import MinMaxScaler
 from transformers import (DataCollatorForLanguageModeling, T5Config,
                           T5ForConditionalGeneration, TrainingArguments)
 
-from data_utils import (AccuracyMetrics, CalMSELoss, CalMSELoss_normalized, combined_mse_metrics, LineByLineTextDataset,
+from data_utils import (AccuracyMetrics, CalMSELoss, LineByLineTextDataset,
                         T5ChemTasks, TaskPrefixDataset, TaskSettings,
                         data_collator, F1_AUCMetrics)
 from model import T5ForProperty
@@ -161,10 +161,11 @@ def train(args):
         else:
             model = T5ForProperty.from_pretrained(
                 args.pretrain, 
-                head_type = task.output_layer,
-                ignore_mismatched_sizes = True,
-                num_classes = args.num_classes,
             )
+            model.head_type = task.output_layer
+            model.config.head_type = model.head_type
+            if args.num_classes and (args.num_classes != getattr(model.config, "num_classes", None)):
+                model.resize_num_classes(args.num_classes)
         if not hasattr(model.config, 'tokenizer'):
             logging.warning("No tokenizer type detected, will use SimpleTokenizer as default")
         tokenizer_type = getattr(model.config, "tokenizer", 'simple')
@@ -275,8 +276,7 @@ def train(args):
     if task.output_layer == 'regression':
         #compute_metrics = partial(CalMSELoss_normalized)
         #compute_metrics = None
-        #compute_metrics = partial(CalMSELoss, scaler=scaler)
-        compute_metrics = partial(combined_mse_metrics)
+        compute_metrics = partial(CalMSELoss, scaler=scaler)
     elif args.task_type == 'pretrain':
         compute_metrics = None  
     elif args.task_type == 'classification':

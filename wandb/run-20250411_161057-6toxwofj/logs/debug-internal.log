@@ -1,0 +1,15 @@
+{"time":"2025-04-11T16:10:57.686013022-04:00","level":"INFO","msg":"stream: starting","core version":"0.19.8","symlink path":"/scratch/cii2002/t5chem_new/t5chem_pKa/wandb/run-20250411_161057-6toxwofj/logs/debug-core.log"}
+{"time":"2025-04-11T16:10:57.805056677-04:00","level":"INFO","msg":"created new stream","id":"6toxwofj"}
+{"time":"2025-04-11T16:10:57.805089834-04:00","level":"INFO","msg":"stream: started","id":"6toxwofj"}
+{"time":"2025-04-11T16:10:57.805100145-04:00","level":"INFO","msg":"writer: Do: started","stream_id":"6toxwofj"}
+{"time":"2025-04-11T16:10:57.805834062-04:00","level":"INFO","msg":"handler: started","stream_id":"6toxwofj"}
+{"time":"2025-04-11T16:10:57.805879597-04:00","level":"INFO","msg":"sender: started","stream_id":"6toxwofj"}
+{"time":"2025-04-11T16:10:57.930616212-04:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-04-11T16:26:16.16270084-04:00","level":"INFO","msg":"stream: closing","id":"6toxwofj"}
+{"time":"2025-04-11T16:26:16.16274097-04:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-04-11T16:26:16.16319885-04:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-04-11T16:26:16.480581822-04:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-04-11T16:26:16.604416802-04:00","level":"INFO","msg":"handler: closed","stream_id":"6toxwofj"}
+{"time":"2025-04-11T16:26:16.604432226-04:00","level":"INFO","msg":"writer: Close: closed","stream_id":"6toxwofj"}
+{"time":"2025-04-11T16:26:16.604447304-04:00","level":"INFO","msg":"sender: closed","stream_id":"6toxwofj"}
+{"time":"2025-04-11T16:26:16.604538493-04:00","level":"INFO","msg":"stream: closed","id":"6toxwofj"}

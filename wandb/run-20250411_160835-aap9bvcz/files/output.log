@@ -1,0 +1,30 @@
+  0%|                                                                                                                                                                        | 0/5550 [00:00<?, ?it/s]Passing a tuple of `past_key_values` is deprecated and will be removed in Transformers v4.48.0. You should pass an instance of `EncoderDecoderCache` instead, e.g. `past_key_values=EncoderDecoderCache.from_legacy_cache(past_key_values)`.
+  1%|█▍                                                                                                                                                             | 50/5550 [00:10<11:58,  7.66it/s]Traceback (most recent call last):
+{'loss': 0.3085, 'grad_norm': 1.2149957418441772, 'learning_rate': 0.0004954954954954955, 'epoch': 1.35}
+  File "/scratch/cii2002/t5chem_new/t5chem_pKa/__main__.py", line 55, in <module>█████████████████████████████████████████████████████████████████████▊                | 9/10 [00:00<00:00, 21.33it/s]
+    main()
+  File "/scratch/cii2002/t5chem_new/t5chem_pKa/__main__.py", line 33, in main
+    command(args)
+  File "/scratch/cii2002/t5chem_new/t5chem_pKa/run_trainer.py", line 324, in train
+    trainer.train()
+  File "/ext3/miniforge3/lib/python3.12/site-packages/transformers/trainer.py", line 2241, in train
+    return inner_training_loop(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/ext3/miniforge3/lib/python3.12/site-packages/transformers/trainer.py", line 2612, in _inner_training_loop
+    self._maybe_log_save_evaluate(
+  File "/ext3/miniforge3/lib/python3.12/site-packages/transformers/trainer.py", line 3085, in _maybe_log_save_evaluate
+    metrics = self._evaluate(trial, ignore_keys_for_eval)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/ext3/miniforge3/lib/python3.12/site-packages/transformers/trainer.py", line 3039, in _evaluate
+    metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/ext3/miniforge3/lib/python3.12/site-packages/transformers/trainer.py", line 4105, in evaluate
+    output = eval_loop(
+             ^^^^^^^^^^
+  File "/ext3/miniforge3/lib/python3.12/site-packages/transformers/trainer.py", line 4394, in evaluation_loop
+    metrics = self.compute_metrics(
+              ^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/cii2002/t5chem_new/t5chem_pKa/data_utils.py", line 223, in combined_mse_metrics
+    'mse_loss_normalized': normalized_metrics['mse_loss'],
+                           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+KeyError: 'mse_loss'
