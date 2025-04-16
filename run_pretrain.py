@@ -97,6 +97,7 @@ def add_args(parser):
 
 def train(args):
     print(args)
+    os.environ["WANDB_DISABLED"] = "true"
     torch.cuda.manual_seed(args.random_seed)
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
