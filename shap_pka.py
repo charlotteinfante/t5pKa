@@ -26,19 +26,19 @@ def add_args(parser):
         "--input_to_analyze",
         type=str,
         required=True,
-        help="The input data dir. Should contain train.source, train.target, val.source, val.target, test.source, test.target",
+        help="should be a rdkit canonical smiles string (seq2seq input) or similar to Brc1ccc(C2CN3C=CSC3=[NH+]2)cc1>>Brc1ccc(C2CN3C=CSC3=N2)cc1 in micropka input",
     )
     parser.add_argument(
         "--scaler",
         type=str,
         required=True,
-        help="The output directory where the model predictions and checkpoints will be written.",
+        help="path to the MinMaxScaler.gz file created during training /path/to/MinMaxScaler.gz",
     )
     parser.add_argument(
         "--model_dir",
         type=str,
         required=True,
-        help="The output directory where the model predictions and checkpoints will be written.",
+        help="path to the model's directory",
     )
 
 def analyze(args):
