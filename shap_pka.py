@@ -225,7 +225,8 @@ def analyze(args):
             last_value = fg_dict[i][-1] # ]
             fg_dict[i].append(first_value - 1)
             fg_dict[i].append(last_value + 1)
-        if all_fgs[i] == 'O=CO' and smiles[fg_dict[i][-1]+1] == ')':
+        if all_fgs[i] == 'O=CO' and fg_dict[i][-1] + 1 < len(smiles) and smiles[fg_dict[i][-1] + 1] == ')':
+        #if all_fgs[i] == 'O=CO' and smiles[fg_dict[i][-1]+1] == ')':
             atom_of_interest = fg_dict[i][-1] #(O)
             fg_dict[i].append(atom_of_interest - 1)
             fg_dict[i].append(atom_of_interest + 1)
