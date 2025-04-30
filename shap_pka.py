@@ -243,7 +243,11 @@ def analyze(args):
     # get the SHAP value for each functional group 
     func_group_value = [np.sum(shap_tokens[fg_dict[i]]) for i,fg in enumerate(all_ids)]
     # Normalize colors based on the min and max value of each functional group 
-    my_norm = Normalize(vmin=min(func_group_value), vmax=max(func_group_value)) 
+    vmin = min(func_group_value)
+    vmax = max(func_group_value)
+    absmax = max(abs(vmin), abs(vmax))
+    my_norm = Normalize(vmin=-absmax, vmax= absmax)
+    #my_norm = Normalize(vmin=min(func_group_value), vmax=max(func_group_value)) 
     #my_norm = Normalize(-10, 10) 
     #my_norm = Normalize(vmin=min(values), vmax=max(values))
 
