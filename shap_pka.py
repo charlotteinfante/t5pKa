@@ -183,64 +183,72 @@ def analyze(args):
         fg, chs, fg_id, fgch_id = mol2frag(mol, returnidx=True, TreatHs='include')
         return token2fg(fg_id+fgch_id, map_dict), fg+chs, fg_id+fgch_id
 
-    # Skip prefix; not needed to draw molecule
-    #smiles = data[0].split(':', 1)[-1].strip()
+    full_input = args.input_to_analyze.strip()
+    data = [full_input]
+
+    masker = shap.maskers.Text(tokenizer, mask_token="<pad>", collapse_mask_token=True)
+    explainer = shap.Explainer(classifier, masker, output_names=['Property'])
+    shap_values = explainer(data)
+
+    # SHAP info
+    sum_array = shap_values.values.sum()
+    sum_shap_base_value = sum_array + shap_values.base_values
+    predictions = classifier([full_input])
+    print([
+        'sum_array: ' + str(sum_array), 
+        'sum_shap_base_value: ' + str(sum_shap_base_value.flatten().tolist()), 
+        'predictions: ' + str(predictions)
+    ])
+
+    tokens = shap_values.data[0]  
+    values = shap_values.values[0]  
+    token_value_list = [(t, float(v)) for t, v in zip(tokens, values)]
+    print(token_value_list)
+
+    # split input if >> present to save 2 images
     if '>>' in args.input_to_analyze:
+        delimiter_index = args.input_to_analyze.find('>>')
         smiles_list = args.input_to_analyze.split('>>')
     else:
         smiles_list = [args.input_to_analyze]
-    #smiles = data[0].split('>>')[0]
 
     for i, smiles in enumerate(smiles_list):
         print("=== Analyzing molecule " + str(i+1) + " ===")
         data = [smiles]
 
-        masker = shap.maskers.Text(tokenizer, mask_token="<pad>", collapse_mask_token=True)
-        explainer = shap.Explainer(classifier, masker, output_names=['Property'])
-        shap_values = explainer(data)
-        analysis(shap_values, smiles)
-        sum_array = shap_values.values.sum()
-        sum_shap_base_value = sum_array + shap_values.base_values
-        predictions = classifier([smiles])
-        print([
-            'sum_array: ' + str(sum_array), 
-            'sum_shap_base_value: ' + str(sum_shap_base_value.flatten().tolist()), 
-            'predictions:' + str(predictions), 
-            'shap_values:' + str(shap_values.values.flatten().tolist())
-            ])
-
-        # Skip prefix; not needed to draw molecule
-        smiles_clean = smiles.split(':', 1)[-1].strip()
-        smiles_clean = smiles_clean.split('>>')[0]  # Just in case
-
-        # SHAP + visualization logic reused here
-        fg_dict, all_fgs, all_ids = smiles2fgid(smiles_clean)
-        mol = Chem.MolFromSmiles(smiles_clean)
-        shap_tokens = np.array([shap_values.values[0][i][0] for i in range(len(smiles_clean))])
+        # get functional groups from smiles
+        fg_dict, all_fgs, all_ids = smiles2fgid(smiles)
+        mol = Chem.MolFromSmiles(smiles)
         bwr = matplotlib.colormaps.get_cmap('bwr')
-        color_dicts_a = {}
-        color_dicts_b = {}
 
-        # extend functional groups like you already do
+        # find the index of where ">>" is present
+        if '>>' in args.input_to_analyze:
+            if i == 0:
+                shap_tokens = np.array([shap_values.values[0][x][0] for x in range(0,delimiter_index)])
+            else:
+                shap_tokens = shap_values.values[0][delimiter_index+2:, 0]
+        else:
+            shap_tokens = np.array([shap_values.values[0][i][0] for i in range(len(smiles))])
+        
         for j, fg in enumerate(all_ids):
             if all_fgs[j] == 'O':
                 fg_dict[j].append(fg_dict[j][0] + 1)
                 fg_dict[j].append(fg_dict[j][0] - 1)
-            if all_fgs[j] == '[NH3+]' and smiles_clean[fg_dict[j][0] -1] == '(':
+            if all_fgs[j] == '[NH3+]' and smiles[fg_dict[j][0] -1] == '(':
                 first_value = fg_dict[j][0]
                 last_value = fg_dict[j][-1]
                 fg_dict[j].append(first_value - 1)
                 fg_dict[j].append(last_value + 1)
-            if all_fgs[j] == 'O=CO' and fg_dict[j][-1] + 1 < len(smiles_clean) and smiles_clean[fg_dict[j][-1] + 1] == ')':
+            if all_fgs[j] == 'O=CO' and fg_dict[j][-1] + 1 < len(smiles) and smiles[fg_dict[j][-1] + 1] == ')':
                 atom_of_interest = fg_dict[j][-1]
                 fg_dict[j].append(atom_of_interest - 1)
                 fg_dict[j].append(atom_of_interest + 1)
-            if all_fgs[j] == 'NC=O' and smiles_clean[fg_dict[j][-1]+1] == ')':
+            if all_fgs[j] == 'NC=O' and smiles[fg_dict[j][-1]+1] == ')':
                 oxygen = fg_dict[j][-1]
                 d_bond = fg_dict[j][-1] - 1
                 fg_dict[j].append(d_bond - 1)
                 fg_dict[j].append(oxygen + 1)
-            if all_fgs[j] == 'C=O' and smiles_clean[fg_dict[j][-1]+1] == ')':
+            if all_fgs[j] == 'C=O' and smiles[fg_dict[j][-1]+1] == ')':
                 oxygen = fg_dict[j][-1]
                 d_bond = fg_dict[j][-1] - 1
                 fg_dict[j].append(d_bond - 1)
@@ -252,6 +260,7 @@ def analyze(args):
         absmax = max(abs(vmin), abs(vmax))
         my_norm = Normalize(vmin=-absmax, vmax=absmax)
 
+        color_dicts_a, color_dicts_b = {}, {}
         for j, fg in enumerate(all_ids):
             shap_val = shap_tokens[fg_dict[j]]
             print(all_fgs[j], shap_val, np.sum(shap_val))
