@@ -40,6 +40,12 @@ def add_args(parser):
         required=True,
         help="path to the model's directory",
     )
+    parser.add_argument(
+        "--task_type",
+        type=str,
+        required=True,
+        help="either regression or seq2seq",
+    )
 
 def analyze(args):
     def prettymol(smiles, shap_value,all_IDs, asMol=False, label=None, path='', imgsize=(300, 200), highlights=None):
@@ -132,26 +138,11 @@ def analyze(args):
     # load the model and tokenizer
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     tokenizer = SimpleTokenizer(vocab_file=args.model_dir + 'vocab.pt')
-    model = T5ForProperty.from_pretrained(args.model_dir).to(device)
+    if args.task_type == 'regression':
+        model = T5ForProperty.from_pretrained(args.model_dir).to(device)
+    else:
+        model = T5ForConditionalGeneration.from_pretrained(args.model_dir).to(device)
     model.config.task_specific_params = {}
-    # define the input sentences we want to translate
-    data = [
-        args.input_to_analyze, #Regression
-    ]
-
-    masker = shap.maskers.Text(tokenizer, mask_token = "<pad>", collapse_mask_token=True)
-    explainer = shap.Explainer(classifier, masker, output_names=['Property'])
-    shap_values = explainer(data)  
-
-    analysis(shap_values, args.input_to_analyze)
-
-    sum_array = shap_values.values.sum()
-    sum_shap_base_value = sum_array + shap_values.base_values
-    predictions = classifier([args.input_to_analyze])
-    print(sum_array)
-    print(sum_shap_base_value)
-    print(predictions)
-    print(shap_values)
 
     def map_atom2stridx(smiles):
         pattern = "[=#]?(\[[^\]]+\]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p)[0-9]{0,2}"
@@ -193,81 +184,100 @@ def analyze(args):
         return token2fg(fg_id+fgch_id, map_dict), fg+chs, fg_id+fgch_id
 
     # Skip prefix; not needed to draw molecule
-    smiles = data[0].split(':', 1)[-1].strip()
-    smiles = data[0].split('>>')[0]
+    #smiles = data[0].split(':', 1)[-1].strip()
+    if '>>' in args.input_to_analyze:
+        smiles_list = args.input_to_analyze.split('>>')
+    else:
+        smiles_list = [args.input_to_analyze]
+    #smiles = data[0].split('>>')[0]
 
-    # group functional groups together 
-    fg_dict, all_fgs, all_ids = smiles2fgid(smiles)
-    # get mol from smiles 
-    mol = Chem.MolFromSmiles(smiles)
-    # get shap values into an array
-    shap_tokens = np.array([shap_values.values[0][i][0] for i in range(len(smiles))])
-    #shap_tokens = np.array([shap_values.values[0][i][0] for i in range(1,len(smiles)+1)])
-    # get color map 
-    bwr = matplotlib.colormaps.get_cmap('bwr')
-    # get the SHAP value for each functional group 
-    func_group_value = [np.sum(shap_tokens[fg_dict[i]]) for i,fg in enumerate(all_ids)]
-    # get all SHAP values
-    values = [shap_values.values[0][i][0] for i in range(len(smiles))]
-    # Normalize colors based on the min and max value of each functional group 
-    my_norm = Normalize(vmin=min(func_group_value), vmax=max(func_group_value)) 
+    for i, smiles in enumerate(smiles_list):
+        print("=== Analyzing molecule " + str(i+1) + " ===")
+        data = [smiles]
 
-    color_dicts_a = {}
-    color_dicts_b = {}
+        masker = shap.maskers.Text(tokenizer, mask_token="<pad>", collapse_mask_token=True)
+        explainer = shap.Explainer(classifier, masker, output_names=['Property'])
+        shap_values = explainer(data)
+        analysis(shap_values, smiles)
+        sum_array = shap_values.values.sum()
+        sum_shap_base_value = sum_array + shap_values.base_values
+        predictions = classifier([smiles])
+        print([
+            'sum_array: ' + str(sum_array), 
+            'sum_shap_base_value: ' + str(sum_shap_base_value.flatten().tolist()), 
+            'predictions:' + str(predictions), 
+            'shap_values:' + str(shap_values.values.flatten().tolist())
+            ])
 
-    # include the shap values from parenthesis
-    for i,fg in enumerate(all_ids):
-        if all_fgs[i] == 'O':
-            fg_dict[i].append(fg_dict[i][0] + 1)
-            fg_dict[i].append(fg_dict[i][0] - 1)
-        if all_fgs[i] == '[NH3+]' and smiles[fg_dict[i][0] -1] == '(':
-            first_value = fg_dict[i][0] # [
-            last_value = fg_dict[i][-1] # ]
-            fg_dict[i].append(first_value - 1)
-            fg_dict[i].append(last_value + 1)
-        if all_fgs[i] == 'O=CO' and fg_dict[i][-1] + 1 < len(smiles) and smiles[fg_dict[i][-1] + 1] == ')':
-        #if all_fgs[i] == 'O=CO' and smiles[fg_dict[i][-1]+1] == ')':
-            atom_of_interest = fg_dict[i][-1] #(O)
-            fg_dict[i].append(atom_of_interest - 1)
-            fg_dict[i].append(atom_of_interest + 1)
-        if all_fgs[i] == 'NC=O' and smiles[fg_dict[i][-1]+1] == ')':
-            oxygen = fg_dict[i][-1] # O)
-            d_bond = fg_dict[i][-1] -1 # =
-            fg_dict[i].append(d_bond - 1)
-            fg_dict[i].append(oxygen + 1)
-        if all_fgs[i] == 'C=O' and smiles[fg_dict[i][-1]+1] == ')':
-            oxygen = fg_dict[i][-1] # O)
-            d_bond = fg_dict[i][-1] -1 # =
-            fg_dict[i].append(d_bond - 1)
-            fg_dict[i].append(oxygen + 1)
-        
-    # get the SHAP value for each functional group 
-    func_group_value = [np.sum(shap_tokens[fg_dict[i]]) for i,fg in enumerate(all_ids)]
-    # Normalize colors based on the min and max value of each functional group 
-    vmin = min(func_group_value)
-    vmax = max(func_group_value)
-    absmax = max(abs(vmin), abs(vmax))
-    my_norm = Normalize(vmin=-absmax, vmax= absmax)
-    #my_norm = Normalize(vmin=min(func_group_value), vmax=max(func_group_value)) 
-    #my_norm = Normalize(-10, 10) 
-    #my_norm = Normalize(vmin=min(values), vmax=max(values))
+        # Skip prefix; not needed to draw molecule
+        smiles_clean = smiles.split(':', 1)[-1].strip()
+        smiles_clean = smiles_clean.split('>>')[0]  # Just in case
 
+        # SHAP + visualization logic reused here
+        fg_dict, all_fgs, all_ids = smiles2fgid(smiles_clean)
+        mol = Chem.MolFromSmiles(smiles_clean)
+        shap_tokens = np.array([shap_values.values[0][i][0] for i in range(len(smiles_clean))])
+        bwr = matplotlib.colormaps.get_cmap('bwr')
+        color_dicts_a = {}
+        color_dicts_b = {}
 
-    for i,fg in enumerate(all_ids):
-        shap_val = shap_tokens[fg_dict[i]]
-        print(all_fgs[i], shap_val, np.sum(shap_val))
-        for a in fg:
-            color_dicts_a[a] = bwr(my_norm(np.sum(shap_val)))
-        
+        # extend functional groups like you already do
+        for j, fg in enumerate(all_ids):
+            if all_fgs[j] == 'O':
+                fg_dict[j].append(fg_dict[j][0] + 1)
+                fg_dict[j].append(fg_dict[j][0] - 1)
+            if all_fgs[j] == '[NH3+]' and smiles_clean[fg_dict[j][0] -1] == '(':
+                first_value = fg_dict[j][0]
+                last_value = fg_dict[j][-1]
+                fg_dict[j].append(first_value - 1)
+                fg_dict[j].append(last_value + 1)
+            if all_fgs[j] == 'O=CO' and fg_dict[j][-1] + 1 < len(smiles_clean) and smiles_clean[fg_dict[j][-1] + 1] == ')':
+                atom_of_interest = fg_dict[j][-1]
+                fg_dict[j].append(atom_of_interest - 1)
+                fg_dict[j].append(atom_of_interest + 1)
+            if all_fgs[j] == 'NC=O' and smiles_clean[fg_dict[j][-1]+1] == ')':
+                oxygen = fg_dict[j][-1]
+                d_bond = fg_dict[j][-1] - 1
+                fg_dict[j].append(d_bond - 1)
+                fg_dict[j].append(oxygen + 1)
+            if all_fgs[j] == 'C=O' and smiles_clean[fg_dict[j][-1]+1] == ')':
+                oxygen = fg_dict[j][-1]
+                d_bond = fg_dict[j][-1] - 1
+                fg_dict[j].append(d_bond - 1)
+                fg_dict[j].append(oxygen + 1)
 
-    
-    for bond in mol.GetBonds():
-        a = bond.GetBeginAtom().GetIdx()
-        b = bond.GetEndAtom().GetIdx()
-        if a in color_dicts_a and b in color_dicts_a and color_dicts_a[a]==color_dicts_a[b]:
-            color_dicts_b[bond.GetIdx()] = color_dicts_a[a]
-    prettymol(mol, func_group_value, all_ids,asMol=True, highlights={'highlightAtoms':color_dicts_a.keys(), 'highlightAtomColors':color_dicts_a, 'highlightBonds':color_dicts_b.keys(),'highlightBondColors':color_dicts_b}, imgsize=(300,300), path="shap.svg")
- 
+        func_group_value = [np.sum(shap_tokens[fg_dict[j]]) for j in range(len(all_ids))]
+        vmin = min(func_group_value)
+        vmax = max(func_group_value)
+        absmax = max(abs(vmin), abs(vmax))
+        my_norm = Normalize(vmin=-absmax, vmax=absmax)
+
+        for j, fg in enumerate(all_ids):
+            shap_val = shap_tokens[fg_dict[j]]
+            print(all_fgs[j], shap_val, np.sum(shap_val))
+            for a in fg:
+                color_dicts_a[a] = bwr(my_norm(np.sum(shap_val)))
+
+        for bond in mol.GetBonds():
+            a = bond.GetBeginAtom().GetIdx()
+            b = bond.GetEndAtom().GetIdx()
+            if a in color_dicts_a and b in color_dicts_a and color_dicts_a[a] == color_dicts_a[b]:
+                color_dicts_b[bond.GetIdx()] = color_dicts_a[a]
+
+        prettymol(
+            mol,
+            func_group_value,
+            all_ids,
+            asMol=True,
+            highlights={
+                'highlightAtoms': color_dicts_a.keys(),
+                'highlightAtomColors': color_dicts_a,
+                'highlightBonds': color_dicts_b.keys(),
+                'highlightBondColors': color_dicts_b
+            },
+            imgsize=(300, 300),
+            path=f"shap_{i+1}_{smiles}.svg"
+        )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
