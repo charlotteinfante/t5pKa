@@ -4,3 +4,5 @@ model_PKA/
 SHAP_pka.ipynb
 __pycache__/
 *.py[cod]
+.ipynb_checkpoints/
+temp_model/
