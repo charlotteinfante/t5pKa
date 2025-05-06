@@ -28,7 +28,7 @@ def add_args(parser):
     parser.add_argument(
         "--data_dir",
         type=str,
-        required=True,
+        required=False,
         help="The input data dir. Should contain train.source, train.target, val.source, val.target, test.source, test.target",
     )
     parser.add_argument(
@@ -80,30 +80,18 @@ def add_args(parser):
         type=bool,
         help="predict the best step based on lowest loss",
     )
+    parser.add_argument(
+        "--smiles",
+        default='',
+        type=str,
+        help="Single SMILES string input for prediction instead of file.",
+    )
+
 
 def predict(args):
     lg = rdkit.RDLogger.logger()  
     lg.setLevel(rdkit.RDLogger.CRITICAL) 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    if os.path.isfile(args.data_dir):
-        args.data_dir, base = os.path.split(args.data_dir)
-        base = base.split('.')[0]
-    else:
-        base = "test"
-
-    # make sure the inputs are rdkit canonical SMILES 
-    with open(args.data_dir +'/'+ base+ '.source', 'r') as smiles_file:
-        smiles_list = [line.rstrip() for line in smiles_file]
-    smiles_df = pd.DataFrame(smiles_list, columns=['source'])
-    smiles_file.close()
-    if smiles_df['source'].str.contains('acidic:|basic:').any():
-        smiles_df[['prefix','just_smiles']] = smiles_df['source'].str.split(':',expand=True)
-        canonical = [Chem.MolToSmiles(Chem.MolFromSmiles(mol), canonical=True) for mol in smiles_df['just_smiles']]
-        smiles_df['canonical'] = canonical
-        smiles_df['combined'] = smiles_df[['prefix','canonical']].apply(lambda row: ':'.join(row.values.astype(str)), axis=1)
-        smiles_df['combined'].to_csv(args.data_dir + 'test.source', index=False, header=False)   
-
     # option to chose the best checkpoint to run prediction (read in config)
     if args.best_cp == True:
         best_files = glob.glob(args.model_dir + '/best_*/')
@@ -120,11 +108,27 @@ def predict(args):
     Tokenizer = tokenizer_map.get(tokenizer_type)
     tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, 'vocab.pt'))
 
-    #if os.path.isfile(args.data_dir):
-    #    args.data_dir, base = os.path.split(args.data_dir)
-    #    base = base.split('.')[0]
-    #else:
-    #    base = "test"
+    if args.smiles:
+        base ='single'
+        smiles_list = [args.smiles]
+    else:
+        if os.path.isfile(args.data_dir):
+            args.data_dir, base = os.path.split(args.data_dir)
+            base = base.split('.')[0]
+        else:
+            base = "test"
+        
+        with open(args.data_dir +'/'+ base+ '.source', 'r') as smiles_file:
+            smiles_list = [line.rstrip() for line in smiles_file]
+        smiles_file.close()
+    smiles_df = pd.DataFrame(smiles_list, columns=['source'])
+
+    # make sure the inputs are rdkit canonical SMILES 
+    if smiles_df['source'].str.contains('Prot:|Deprot:').any():
+        smiles_df[['prefix','just_smiles']] = smiles_df['source'].str.split(':',expand=True)
+        canonical = [Chem.MolToSmiles(Chem.MolFromSmiles(mol), canonical=True) for mol in smiles_df['just_smiles']]
+        smiles_df['canonical'] = canonical
+        smiles_df['combined'] = smiles_df[['prefix','canonical']].apply(lambda row: ':'.join(row.values.astype(str)), axis=1)
 
     testset = TaskPrefixDataset(tokenizer, data_dir=args.data_dir,
                                     prefix=args.prefix or task.prefix,
