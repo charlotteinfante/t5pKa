@@ -231,7 +231,7 @@ def analyze(args):
             shap_tokens = np.array([shap_values.values[0][i][0] for i in range(len(smiles))])
         
         for j, fg in enumerate(all_ids):
-            if all_fgs[j] == 'O':
+            if all_fgs[j] == 'O' and smiles[fg_dict[j][0] -1] == '(':
                 fg_dict[j].append(fg_dict[j][0] + 1)
                 fg_dict[j].append(fg_dict[j][0] - 1)
             if all_fgs[j] == '[NH3+]' and smiles[fg_dict[j][0] -1] == '(':
