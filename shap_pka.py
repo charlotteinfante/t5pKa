@@ -234,6 +234,9 @@ def analyze(args):
             if all_fgs[j] == 'O' and smiles[fg_dict[j][0] -1] == '(':
                 fg_dict[j].append(fg_dict[j][0] + 1)
                 fg_dict[j].append(fg_dict[j][0] - 1)
+            if all_fgs[j] == 'O=[N+][O-]' and smiles[fg_dict[j][6] -1] == '(':
+                fg_dict[j].append(fg_dict[j][6] + 4)
+                fg_dict[j].append(fg_dict[j][6] - 1)
             if all_fgs[j] == '[NH3+]' and smiles[fg_dict[j][0] -1] == '(':
                 first_value = fg_dict[j][0]
                 last_value = fg_dict[j][-1]
