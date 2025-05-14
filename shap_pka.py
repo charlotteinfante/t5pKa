@@ -230,16 +230,19 @@ def analyze(args):
             shap_tokens = np.array([shap_values.values[0][i][0] for i in range(len(smiles))])
         
         for j, fg in enumerate(all_ids):
+            #breakpoint()
             if all_fgs[j] == 'O' and smiles[fg_dict[j][0] -1] == '(':
-                fg_dict[j].append(fg_dict[j][0] + 1)
-                fg_dict[j].append(fg_dict[j][0] - 1)
+                    fg_dict[j].append(fg_dict[j][0] + 1) # (O)
+                    fg_dict[j].append(fg_dict[j][0] - 1) # (O)
+            if all_fgs[j] == '[O-]' and smiles[fg_dict[j][0] -1] == '(':
+                    fg_dict[j].append(fg_dict[j][0] + 4) # ([O-]  )
+                    fg_dict[j].append(fg_dict[j][0] - 1) # (  [O-])
             if all_fgs[j] == 'O=[N+][O-]' and smiles[fg_dict[j][6] -1] == '(':
                 fg_dict[j].append(fg_dict[j][6] + 4)
                 fg_dict[j].append(fg_dict[j][6] - 1)
-            breakpoint()
             if all_fgs[j] == 'O=[N+][O-]' and smiles[fg_dict[j][0] -1] == '(':
-                fg_dict[j].append(fg_dict[j][9] + 1) # ([O-])c([N+](=O)[O-]  )
-                fg_dict[j].append(fg_dict[j][0] - 1) # (  [O-])c([N+](=O)[O-])
+                fg_dict[j].append(fg_dict[j][9] + 1) # ([N+](=O)[O-]  ) 
+                fg_dict[j].append(fg_dict[j][0] - 1) # (  ([N+](=O)[O-])
                 if all_fgs[j] == 'O=[N+][O-]' and smiles[fg_dict[j][5] + 1] == ')':
                     fg_dict[j].append(fg_dict[j][5] + 1) # (=O  )
                     fg_dict[j].append(fg_dict[j][5] - 2) # (  =O)
