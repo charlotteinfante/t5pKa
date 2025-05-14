@@ -191,13 +191,12 @@ def analyze(args):
     shap_values = explainer(data)
 
     # SHAP info
-    sum_array = shap_values.values.sum()
-    sum_shap_base_value = sum_array + shap_values.base_values
-    predictions = classifier([full_input])
+    sum_shap_base_value = shap_values.values.sum() + shap_values.base_values
     print([
-        'sum_array: ' + str(sum_array), 
+        'base value: ' + str(shap_values.base_values),
+        'sum_array: ' + str(shap_values.values.sum()), 
         'sum_shap_base_value: ' + str(sum_shap_base_value.flatten().tolist()), 
-        'predictions: ' + str(predictions)
+        'predictions: ' + str(classifier([full_input]))
     ])
 
     tokens = shap_values.data[0]  
@@ -237,6 +236,13 @@ def analyze(args):
             if all_fgs[j] == 'O=[N+][O-]' and smiles[fg_dict[j][6] -1] == '(':
                 fg_dict[j].append(fg_dict[j][6] + 4)
                 fg_dict[j].append(fg_dict[j][6] - 1)
+            breakpoint()
+            if all_fgs[j] == 'O=[N+][O-]' and smiles[fg_dict[j][0] -1] == '(':
+                fg_dict[j].append(fg_dict[j][9] + 1) # ([O-])c([N+](=O)[O-]  )
+                fg_dict[j].append(fg_dict[j][0] - 1) # (  [O-])c([N+](=O)[O-])
+                if all_fgs[j] == 'O=[N+][O-]' and smiles[fg_dict[j][5] + 1] == ')':
+                    fg_dict[j].append(fg_dict[j][5] + 1) # (=O  )
+                    fg_dict[j].append(fg_dict[j][5] - 2) # (  =O)
             if all_fgs[j] == '[NH3+]' and smiles[fg_dict[j][0] -1] == '(':
                 first_value = fg_dict[j][0]
                 last_value = fg_dict[j][-1]
