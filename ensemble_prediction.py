@@ -176,7 +176,6 @@ def predict(args):
     for i in range(len(all_predictions)):
         df['prediction_'+str(i)] = all_predictions[i]
     
-    
     avg, std, scaffold_avg, scaffold_std, random_avg, random_std = [], [], [], [], [], []
     for i in range(len(df)):
         # calc the art. mean 
