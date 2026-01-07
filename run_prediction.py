@@ -102,7 +102,10 @@ def predict(args):
     else:
         config = T5Config.from_pretrained(args.model_dir)
 
+    # get task type information
     task = T5ChemTasks[config.task_type]
+
+    # get the type of Tokenizer needed
     tokenizer_type = getattr(config, "tokenizer")
     tokenizer_map = {"simple": SimpleTokenizer, "atom": AtomTokenizer, "selfies": SelfiesTokenizer}
     Tokenizer = tokenizer_map[tokenizer_type]
@@ -157,12 +160,13 @@ def predict(args):
         collate_fn=partial(data_collator, pad_token_id=tokenizer.pad_token_id),
     )
 
-    # Load model
+    # Load either seq2seq or regression model
     if task.output_layer == 'seq2seq':
         model_cls = T5ForConditionalGeneration
     else:
         model_cls = T5ForProperty
 
+    # allow possibility to predict using best checkpoint
     if args.best_cp:
         model = model_cls.from_pretrained(best_files[0])
     else:
@@ -188,7 +192,7 @@ def predict(args):
             with torch.no_grad():
                 output = model.generate(**batch, **task_params)
             for i, pred in enumerate(output):
-                decoded = tokenizer.decode(pred, skip_special_tokens=True)
+                decoded = tokenizer.decode(pred, skip_special_tokens=True, clean_up_tokenization_spaces = False)
                 predictions[i % args.num_preds].append(standize(decoded))
 
         test_df = pd.DataFrame({f'prediction_{i+1}': preds for i, preds in enumerate(predictions)})
@@ -210,8 +214,10 @@ def predict(args):
                     pred_vals = logits
                 elif logits.shape[-1] == 2:
                     pred_vals = logits[:, -1:]
+                    binary_classification = True
                 else:
                     pred_vals = torch.argmax(logits, axis=-1, keepdim=True)
+                    binary_classification = False
                 predictions[cur_start:cur_end] = pred_vals.detach().cpu().numpy()
                 targets[cur_start:cur_end] = batch['labels'].detach().cpu().numpy()
 
@@ -238,6 +244,9 @@ def predict(args):
 
     # Compute metrics (if batch input)
     if task.output_layer == 'regression':
+        if args.scaler is not None:
+            scaler = joblib.load(os.path.join(args.scaler,'MinMaxScaler.gz')) 
+            predictions = scaler.inverse_transform(predictions)
         mae = mean_absolute_error(targets, predictions)
         mse = mean_squared_error(targets, predictions)
         print(f"MAE: {mae:.3f}    RMSE: {mse**0.5:.3f}")
@@ -245,6 +254,14 @@ def predict(args):
             r2 = r2_score(targets.reshape(-1), predictions.reshape(-1))
             r, _ = pearsonr(targets.reshape(-1), predictions.reshape(-1))
             print(f"r2: {r2:.3f}    r: {r:.3f}")
+    elif task.output_layer == 'seq2seq':
+        correct = 0
+        invalid_smiles = 0
+        for i in range(1, args.num_preds+1):
+            correct += (test_df['rank'] == i).sum()
+            invalid_smiles += (test_df['prediction_{}'.format(i)] == '').sum()
+            print('Top-{}: {:.1f}% || Invalid {:.2f}%'.format(i, correct/len(test_df)*100, \
+                invalid_smiles/len(test_df)/i*100))
     else:
         if isinstance(predictions, list):
             predictions = np.array(predictions)
