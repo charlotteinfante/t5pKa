@@ -138,6 +138,7 @@ def split_experimental_data(args):
             test['target'].to_csv(str(args.resulting_exp_dir)+str(i)+ '/val.target', index = False, header=False)
 
 def scaffold_stratkfold_split(args):
+    breakpoint()
     if args.all_data and args.resulting_scaffold_dir:
         os.makedirs(args.resulting_scaffold_dir)
         train_s = pd.read_csv(str(args.all_data)+'train.source', names = ['smiles'])
@@ -192,24 +193,43 @@ def scaffold_stratkfold_split(args):
         chunks = np.split(sorted_array, scaffold_change_indices)
 
         # do 5 kfold split based on chunk size 
-        fold_1, fold_2, fold_3, fold_4, fold_5 = [], [],[],[],[]
+        breakpoint()
+        num_folds = 5
+        folds = [ np.empty((0, chunks[0].shape[1]), dtype=chunks[0].dtype)for _ in range(num_folds) ]
+        sizes = [0]*num_folds
         for chunk in chunks:
-            if len(fold_1) + len(chunk) <= fold_size:
-                fold_1.extend(chunk)  
-            elif len(fold_2) + len(chunk) <= fold_size:
-                fold_2.extend(chunk)
-            elif len(fold_3) + len(chunk) <= fold_size:
-                fold_3.extend(chunk)
-            elif len(fold_4) + len(chunk) <= fold_size:
-                fold_4.extend(chunk)
-            elif len(fold_5) + len(chunk) <= fold_size:
-                fold_5.extend(chunk)
+            target = int(np.argmin(sizes))
+            folds[target] = np.vstack([folds[target], chunk])
+            sizes[target] += chunk.shape[0]
+        for i in range(num_folds):
+            while sizes[i] > fold_size:
+                row = folds[i][-1:]
+                folds[i] = folds[i][:-1]
+                sizes[i] -= 1
+                j = int(np.argmin(sizes))
+                folds[j] = np.vstack([folds[j], row])
+                sizes[j] += 1
+        for k, f in enumerate(folds, 1):
+            print(f"Fold {k}: {f.shape[0]}")
+
+        #fold_1, fold_2, fold_3, fold_4, fold_5 = [], [],[],[],[]
+        #for chunk in chunks:
+        #    if len(fold_1) + len(chunk) <= fold_size:
+        #        fold_1.extend(chunk)  
+        #    elif len(fold_2) + len(chunk) <= fold_size:
+        #        fold_2.extend(chunk)
+        #    elif len(fold_3) + len(chunk) <= fold_size:
+        #        fold_3.extend(chunk)
+        #    elif len(fold_4) + len(chunk) <= fold_size:
+        #        fold_4.extend(chunk)
+        #    elif len(fold_5) + len(chunk) <= fold_size:
+        #        fold_5.extend(chunk)
             
-        fold_1 = np.array(fold_1)
-        fold_2 = np.array(fold_2)
-        fold_3 = np.array(fold_3)
-        fold_4 = np.array(fold_4)
-        fold_5 = np.array(fold_5)
+        #fold_1 = np.array(fold_1)
+        #fold_2 = np.array(fold_2)
+        #fold_3 = np.array(fold_3)
+        #fold_4 = np.array(fold_4)
+        #fold_5 = np.array(fold_5)
         
         # code after this commented chunk does this in a loop 
             #train_1 = np.concatenate((fold_2, fold_3, fold_4, fold_5), axis=0)
@@ -220,7 +240,11 @@ def scaffold_stratkfold_split(args):
             #val_3 = fold_3
             #train_4 = np.concatenate((fold_5, fold_1, fold_2, fold_3), axis=0)
             #val_4 = fold_4
-
+        fold_1 = folds[0]
+        fold_2 = folds[1]
+        fold_3 = folds[2]
+        fold_4 = folds[3]
+        fold_5 = folds[4]
         folds = [fold_1, fold_2, fold_3, fold_4, fold_5]
         num_folds = len(folds)
         train, val = [], []
