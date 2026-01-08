@@ -1,6 +1,6 @@
 # Installation
 
-$ pip install t5chem
+$ pip install t5chem == 1.0.0
 # Run Predictions
 Run single prediction:
 
