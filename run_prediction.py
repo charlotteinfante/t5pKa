@@ -115,6 +115,8 @@ def predict(args):
     if args.smiles:
         base = "single"
         smiles_list = [args.smiles]
+        targets_raw = None
+    # read in test.source file 
     else:
         if os.path.isfile(args.data_dir):
             args.data_dir, base = os.path.split(args.data_dir)
@@ -122,7 +124,15 @@ def predict(args):
         else:
             base = "test"
         with open(os.path.join(args.data_dir, f"{base}.source"), 'r') as f:
-            smiles_list = [line.strip() for line in f]
+            inputs_raw = [line.strip() for line in f]
+            smiles_list = inputs_raw[:]
+        # read in targets if avaliable
+        target_path = os.path.join(args.data_dir, f"{base}.target")
+        if os.path.exists(target_path):
+            with open(target_path, "r") as f:
+                targets_raw = [line.rstrip("\n") for line in f]
+        else:
+            targets_raw = None
 
     # Canonicalize SMILES if needed
     smiles_df = pd.DataFrame(smiles_list, columns=["source"])
@@ -160,6 +170,8 @@ def predict(args):
         collate_fn=partial(data_collator, pad_token_id=tokenizer.pad_token_id),
     )
 
+    # Get targets 
+
     # Load either seq2seq or regression model
     if task.output_layer == 'seq2seq':
         model_cls = T5ForConditionalGeneration
@@ -195,9 +207,13 @@ def predict(args):
                 decoded = tokenizer.decode(pred, skip_special_tokens=True, clean_up_tokenization_spaces = False)
                 predictions[i % args.num_preds].append(standize(decoded))
 
-        test_df = pd.DataFrame({f'prediction_{i+1}': preds for i, preds in enumerate(predictions)})
-
-    else:
+        pred_df = pd.DataFrame({f'prediction_{i+1}': preds for i, preds in enumerate(predictions)})
+        # save prediction .csv file with inputs, targets, and predictions
+        out = pd.DataFrame({"input": smiles_list})
+        if targets_raw is not None:
+            out["target"] = targets_raw
+        test_df = pd.concat([out, pred_df], axis=1)
+    else: #regression or classification task 
         num_targets = testset[0]['decoder_input_ids'].shape[-1]
         predictions = np.zeros((len(testset), num_targets))
         targets = np.zeros_like(predictions)
@@ -220,12 +236,16 @@ def predict(args):
                     binary_classification = False
                 predictions[cur_start:cur_end] = pred_vals.detach().cpu().numpy()
                 targets[cur_start:cur_end] = batch['labels'].detach().cpu().numpy()
-
+        # scale predictions
         if args.scaler and task.output_layer == 'regression':
             scaler = joblib.load(os.path.join(args.scaler, "MinMaxScaler.gz"))
             predictions = scaler.inverse_transform(predictions)
-
-        test_df = pd.DataFrame({f'prediction_{i+1}': predictions[:, i] for i in range(num_targets)})
+        # save prediction csv file with inputs, targets, and predictions
+        pred_df = pd.DataFrame({f'prediction_{i+1}': predictions[:, i] for i in range(num_targets)})
+        out = pd.DataFrame({'input':smiles_list})
+        if targets_raw is not None:
+            out['target'] = targets_raw
+        test_df = pd.concat([out, pred_df.round(2)], axis=1)
 
     # Print and save
     if args.smiles:
@@ -244,17 +264,21 @@ def predict(args):
 
     # Compute metrics (if batch input)
     if task.output_layer == 'regression':
-        if args.scaler is not None:
-            scaler = joblib.load(os.path.join(args.scaler,'MinMaxScaler.gz')) 
-            predictions = scaler.inverse_transform(predictions)
         mae = mean_absolute_error(targets, predictions)
         mse = mean_squared_error(targets, predictions)
-        print(f"MAE: {mae:.3f}    RMSE: {mse**0.5:.3f}")
-        if num_targets == 1:
-            r2 = r2_score(targets.reshape(-1), predictions.reshape(-1))
-            r, _ = pearsonr(targets.reshape(-1), predictions.reshape(-1))
-            print(f"r2: {r2:.3f}    r: {r:.3f}")
+        r2 = r2_score(targets.reshape(-1), predictions.reshape(-1))
+        r, _ = pearsonr(targets.reshape(-1), predictions.reshape(-1))
+        print(f"MAE: {mae:.3f}    RMSE: {mse**0.5:.3f}    r2: {r2:.3f}    r: {r:.3f}")
+        #if num_targets == 1:
+        #    r2 = r2_score(targets.reshape(-1), predictions.reshape(-1))
+        #    r, _ = pearsonr(targets.reshape(-1), predictions.reshape(-1))
+        #    print(f"r2: {r2:.3f}    r: {r:.3f}")
     elif task.output_layer == 'seq2seq':
+        for i, preds in enumerate(predictions):
+            test_df['prediction_{}'.format(i + 1)] = preds
+            test_df['prediction_{}'.format(i + 1)] = test_df['prediction_{}'.format(i + 1)].apply(standize)
+        test_df['rank'] = test_df.apply(lambda row: get_rank(row, 'prediction_', args.num_preds), axis=1)
+
         correct = 0
         invalid_smiles = 0
         for i in range(1, args.num_preds+1):
