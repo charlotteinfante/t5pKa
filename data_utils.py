@@ -69,7 +69,9 @@ class TaskPrefixDataset(Dataset):
     def __init__(
         self,
         tokenizer: PreTrainedTokenizer,
-        data_dir: str,
+        data_dir: Optional[str] = None,
+        smiles_list: Optional[List[str]] = None,
+        target_list: Optional[List[str]] = None,
         prefix: str='',
         type_path: str="train",
         max_source_length: int=300,
@@ -79,21 +81,31 @@ class TaskPrefixDataset(Dataset):
         super().__init__()
 
         self.prefix: str = prefix
-        self._source_path: str = os.path.join(data_dir, type_path + ".source")
-        self._target_path: str = os.path.join(data_dir, type_path + ".target")
-        self._len_source: int = int(subprocess.check_output("wc -l " + self._source_path, shell=True).split()[0])
-        self._len_target: int = int(subprocess.check_output("wc -l " + self._target_path, shell=True).split()[0])
-        assert self._len_source == self._len_target, "Source file and target file don't match!"
         self.tokenizer: PreTrainedTokenizer = tokenizer
         self.max_source_len: int = max_source_length
         self.max_target_len: int = max_target_length
         self.sep_vocab: bool = separate_vocab
+        if smiles_list is not None:
+            self.sources = smiles_list
+            self.targets = ["0"] * len(smiles_list)
+        else:
+            assert data_dir is not None, "data_dir needed if no SMILES provided"
+            self._source_path: str = os.path.join(data_dir, type_path + ".source")
+            self._target_path: str = os.path.join(data_dir, type_path + ".target")
+            self._len_source: int = int(subprocess.check_output("wc -l " + self._source_path, shell=True).split()[0])
+            self._len_target: int = int(subprocess.check_output("wc -l " + self._target_path, shell=True).split()[0])
+            assert self._len_source == self._len_target, "Source file and target file don't match!"
+            self.sources = [linecache.getline(self._source_path, i + 1).strip() for i in range(self._len_source)]
+            self.targets = [linecache.getline(self._target_path, i + 1).strip() for i in range(self._len_target)]
 
     def __len__(self) -> int:
-        return self._len_source
+        return len(self.sources)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        source_line: str = linecache.getline(self._source_path, idx + 1).strip()
+        source_line = self.sources[idx]
+        target_line = self.targets[idx]
+        #source_line: str = linecache.getline(self._source_path, idx + 1).strip()
+        #target_line: str = linecache.getline(self._target_path, idx + 1).strip()
         source_sample: BatchEncoding = self.tokenizer(
                         self.prefix+source_line,
                         max_length=self.max_source_len,
@@ -101,7 +113,6 @@ class TaskPrefixDataset(Dataset):
                         truncation=True,
                         return_tensors='pt',
                     )
-        target_line: str = linecache.getline(self._target_path, idx + 1).strip()
         if self.sep_vocab:
             try:
                 target_value: List[float] = [float(x) for x in target_line.split(',')]
