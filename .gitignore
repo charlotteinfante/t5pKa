@@ -1,3 +1,6 @@
+temp_model
+shap_*_*
+data_scripts/pka
 models/*
 setup.py
 model_PKA/
