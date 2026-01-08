@@ -287,8 +287,18 @@ def predict(args):
             print('Top-{}: {:.1f}% || Invalid {:.2f}%'.format(i, correct/len(test_df)*100, \
                 invalid_smiles/len(test_df)/i*100))
     else:
+        # classification (binary or multiclass)
         if isinstance(predictions, list):
             predictions = np.array(predictions)
+        # binary classification
+        if binary_classification:
+            roc_auc = roc_auc_score(test_df['target'], predictions)
+            test_df['prediction'] = (predictions > 0.5).astype(int)
+            print('ROC-AUC: {:.3f}'.format(roc_auc), end='\t')
+        else: # multiclass classification
+            test_df['prediction'] = predictions.astype(int)
+            f1 = f1_score(test_df['target'], predicions, average='marco')
+            print('Accuracy: {:.1f}%'.format(correct/len(test_df)*100))
         pred_classes = predictions > 0.5 if predictions.shape[-1] == 1 else predictions
         accuracy = np.mean((targets == pred_classes).astype(int))
         print(f"Accuracy: {accuracy*100:.1f}%")
