@@ -73,6 +73,30 @@ def add_args(parser):
         type=bool,
         help="predict the best step based on lowest loss",
     )
+    parser.add_argument(
+        "--smiles",
+        default='',
+        type=str,
+        help="single SMILES string input for prediction instead of file",
+    )
+    parser.add_argument(
+        "--unify",
+        default=False,
+        type=bool,
+        help="use seq2seq prediction results in regression model"
+    )
+    parser.add_argument(
+        "--regression_model_dir",
+        default='',
+        type=str,
+        help="read in regression model when --unify True"
+    )
+    parser.add_argument(
+        "--regression_targets",
+        default='',
+        type=str,
+        help="if regression file has targets and you want to compute metrics, then add path to this target file"
+    )
 
 def predict(args):
     '''
@@ -93,13 +117,187 @@ def predict(args):
         smiles_list = [line.rstrip() for line in smiles_file]
     smiles_df = pd.DataFrame(smiles_list, columns=['source'])
     smiles_file.close()
-    if smiles_df['source'].str.contains('acidic:|basic:').any():
+    if smiles_df['source'].str.contains('Prot:|Deprot:').any():
         smiles_df[['prefix','just_smiles']] = smiles_df['source'].str.split(':',expand=True)
         canonical = [Chem.MolToSmiles(Chem.MolFromSmiles(mol), canonical=True) for mol in smiles_df['just_smiles']]
         smiles_df['canonical'] = canonical
         smiles_df['combined'] = smiles_df[['prefix','canonical']].apply(lambda row: ':'.join(row.values.astype(str)), axis=1)
         smiles_df['combined'].to_csv(args.data_dir + 'test.source', index=False, header=False)   
 
+    if args.unify == True:
+        # read in seq2seq task [one model only, so no call in for ensemble]
+        if args.best_cp == True:
+            best_files = glob.glob(args.model_dir + str(i) +'/best_*/')
+            config = T5Config.from_pretrained(best_files[0])
+        else:
+            config = T5Config.from_pretrained(args.model_dir)
+        # get task information [should be seq2seq]
+        task = T5ChemTasks[config.task_type]
+
+        # get the type of Tokenizer needed 
+        tokenizer_type = getattr(config, "tokenizer")
+        tokenizer_map = {"simple": SimpleTokenizer, "atom": AtomTokenizer, "selfies": SelfiesTokenizer}
+        Tokenizer = tokenizer_map[tokenizer_type]
+        tokenizer = Tokenizer(vocab_file = os.path.join(args.model_dir, 'vocab.pt'))
+        # Handle input: single SMILES or file-based
+        if args.smiles:
+            base = "single"
+            smiles_list = [args.smiles]
+            targets_raw = None
+        # read in test.source file 
+        else:
+            if os.path.isfile(args.data_dir):
+                args.data_dir, base = os.path.split(args.data_dir)
+                base = base.split('.')[0]
+            else:
+                base = "test"
+            with open(os.path.join(args.data_dir, f"{base}.source"), 'r') as f:
+                inputs_raw = [line.strip() for line in f]
+                smiles_list = inputs_raw[:]
+            # read in targets if avaliable
+            target_path = os.path.join(args.data_dir, f"{base}.target")
+            if os.path.exists(target_path):
+                with open(target_path, "r") as f:
+                    targets_raw = [line.rstrip("\n") for line in f]
+            else:
+                targets_raw = None
+
+        # Canonicalize SMILES if needed
+        smiles_df = pd.DataFrame(smiles_list, columns=["source"])
+        if smiles_df['source'].str.contains("Prot:|Deprot:").any():
+            smiles_df[['prefix', 'just_smiles']] = smiles_df['source'].str.split(':', expand=True)
+            canonical = [Chem.MolToSmiles(Chem.MolFromSmiles(m), canonical=True) for m in smiles_df['just_smiles']]
+            smiles_df['canonical'] = canonical
+            smiles_df['combined'] = smiles_df['prefix'] + ':' + smiles_df['canonical']
+            smiles_list = smiles_df['combined'].tolist()
+
+    ### CHANGE INDENTATION HERE 
+            # Create dataset and dataloader
+            testset = TaskPrefixDataset(
+                tokenizer,
+                data_dir=args.data_dir,
+                type_path=base,
+                prefix=args.prefix or task.prefix,
+                max_source_length=task.max_source_length,
+                max_target_length=task.max_target_length,
+                separate_vocab=(task.output_layer != 'seq2seq'),
+            )
+            test_loader = DataLoader(testset,
+            batch_size=args.batch_size,
+            collate_fn=partial(data_collator, pad_token_id=tokenizer.pad_token_id),
+            )
+
+            # load in T5ForConditionalGeneration used in seq2seq model 
+            model_cls = T5ForConditionalGeneration
+            #allow possibility to predict using best checkpoint
+            if args.best_cp:
+                model = model_cls.from_pretrained(best_files[0])
+            else:
+                model = model_cls.from_pretrained(args.model_dir)
+        
+            model = model.to(device)
+            model.eval()
+
+            # Prediction
+            if task.output_layer == 'seq2seq':
+            predictions = [[] for _ in range(args.num_preds)]
+            task_params = {
+                "early_stopping": True,
+                "max_length": task.max_target_length,
+                "num_beams": args.num_beams,
+                "num_return_sequences": args.num_preds,
+                "decoder_start_token_id": tokenizer.pad_token_id,
+                }
+            for batch in tqdm(test_loader, desc="Predicting"):
+                for k, v in batch.items():
+                    batch[k] = v.to(device)
+                del batch['labels']
+                with torch.no_grad():
+                    output = model.generate(**batch, **task_params)
+                for i, pred in enumerate(output):
+                    decoded = tokenizer.decode(pred, skip_special_tokens=True, clean_up_tokenization_spaces = False)
+                    predictions[i % args.num_preds].append(standize(decoded))
+
+            pred_df = pd.DataFrame({f'prediction_{i+1}': preds for i, preds in enumerate(predictions)})
+            # save prediction .csv file with inputs, targets, and predictions
+            out = pd.DataFrame({"input": smiles_list})
+            if targets_raw is not None:
+                out["target"] = targets_raw
+            test_df = pd.concat([out, pred_df], axis=1)
+
+            # compute metrics for seq2seq task
+            if targets_raw is not None:
+                for i, preds in enumerate(predictions):
+                    test_df['prediction_{}'.format(i + 1)] = preds
+                    test_df['prediction_{}'.format(i + 1)] = test_df['prediction_{}'.format(i + 1)].apply(standize)
+                test_df['rank'] = test_df.apply(lambda row: get_rank(row, 'prediction_', args.num_preds), axis=1)
+
+                correct = 0
+                invalid_smiles = 0
+                for i in range(1, args.num_preds+1):
+                    correct += (test_df['rank'] == i).sum()
+                    invalid_smiles += (test_df['prediction_{}'.format(i)] == '').sum()
+                    print('Top-{}: {:.1f}% || Invalid {:.2f}%'.format(i, correct/len(test_df)*100, \
+                        invalid_smiles/len(test_df)/i*100))
+
+            if args.regression_targets is not None:
+                reg_targets = pd.read_csv(args.regression_targets, names=['pKa targets'])
+                reg_targets["target"] = pd.to_numeric(reg_targets["target"], errors="coerce")
+                new_test_df = pd.concat([test_df, reg_targets], axis=1)
+        
+            new_test_df[['prefix','smiles']] = new_test_df['input'].str.split(':',expand=True)
+            pairs, skip_indices = [], []
+            for i, (x, y, z) in enumerate(zip(new_test_df['smiles'], new_test_df['prediction_1'], new_test_df['prediction_2'])):
+            # choose prediction: prefer y if valid, otherwise z
+                if pd.notna(y):
+                    pred = y
+                elif pd.notna(z):
+                    pred = z
+                else:
+                    skip_indices.append(i)
+                    continue  # skip if both are NaN
+
+                mol1 = Chem.MolFromSmiles(str(x))
+                mol2 = Chem.MolFromSmiles(str(pred))
+
+                # skip invalid SMILES
+                if mol1 is None or mol2 is None:
+                    skip_indices.append(i)
+                    continue
+
+                # compute formal charges
+                charge1 = sum(atom.GetFormalCharge() for atom in mol1.GetAtoms())
+                charge2 = sum(atom.GetFormalCharge() for atom in mol2.GetAtoms())
+
+                # ensure correct direction
+                if (charge1 == 1 and charge2 == 0) or (charge1 == 0 and charge2 == -1):
+                    pair = f"{Chem.MolToSmiles(mol1)}>>{Chem.MolToSmiles(mol2)}"
+                elif (charge2 == 1 and charge1 == 0) or (charge2 == 0 and charge1 == -1):
+                    pair = f"{Chem.MolToSmiles(mol2)}>>{Chem.MolToSmiles(mol1)}"
+                elif charge1 > charge2:
+                    pair = f"{Chem.MolToSmiles(mol1)}>>{Chem.MolToSmiles(mol2)}"
+                elif charge1 < charge2:
+                    pair = f"{Chem.MolToSmiles(mol2)}>>{Chem.MolToSmiles(mol1)}"
+                else:
+                    # not a +1↔0 or 0↔−1 transition
+                    skip_indices.append(i)
+                    continue
+
+                pairs.append(pair)
+
+            # drop skipped rows from targets
+            new_test_df = new_test_df.drop(skip_indices).reset_index(drop=True)
+            print(f"Skipped {len(skip_indices)} rows due to missing predictions or invalid charge transitions.")
+
+            # add pairs into dataset to be predicted by regression model
+            new_test_df['source'] = pairs
+
+            # preparing to enter regression ensemble model loop
+            if not args.regression_model_dir:
+                raise ValueError("When --unify True, you must provide --regression_model_dir")
+            reg_model_dir = args.regression_model_dir
+
+            reg_smiles_list = new_test_df['source'].astype(str).tolist()
 
     all_predictions, all_targets = [], []
     #breakpoint()
@@ -119,7 +317,6 @@ def predict(args):
         tokenizer_map = {"simple": SimpleTokenizer,"atom": AtomTokenizer, "selfies": SelfiesTokenizer }
         Tokenizer = tokenizer_map.get(tokenizer_type)
         tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, str(i)+'/vocab.pt'))
-
         if os.path.isfile(args.data_dir):
             args.data_dir, base = os.path.split(args.data_dir)
             base = base.split('.')[0]
