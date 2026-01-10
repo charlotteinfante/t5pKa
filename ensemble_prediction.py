@@ -68,6 +68,18 @@ def add_args(parser):
         help="Batch size for training and validation.",
     )
     parser.add_argument(
+        "--num_beams",
+        default=10,
+        type=int,
+        help="Number of beams for beam search.",
+    )
+    parser.add_argument(
+        "--num_preds",
+        default=5,
+        type=int,
+        help="The number of independently computed returned sequences for each element in the batch.",
+    )
+    parser.add_argument(
         "--best_cp",
         default=False,
         type=bool,
@@ -87,7 +99,7 @@ def add_args(parser):
     )
     parser.add_argument(
         "--regression_model_dir",
-        default='',
+        default=None,
         type=str,
         help="read in regression model when --unify True"
     )
@@ -171,35 +183,34 @@ def predict(args):
             smiles_df['combined'] = smiles_df['prefix'] + ':' + smiles_df['canonical']
             smiles_list = smiles_df['combined'].tolist()
 
-    ### CHANGE INDENTATION HERE 
-            # Create dataset and dataloader
-            testset = TaskPrefixDataset(
-                tokenizer,
-                data_dir=args.data_dir,
-                type_path=base,
-                prefix=args.prefix or task.prefix,
-                max_source_length=task.max_source_length,
-                max_target_length=task.max_target_length,
-                separate_vocab=(task.output_layer != 'seq2seq'),
-            )
-            test_loader = DataLoader(testset,
-            batch_size=args.batch_size,
-            collate_fn=partial(data_collator, pad_token_id=tokenizer.pad_token_id),
-            )
+        # Create dataset and dataloader
+        testset = TaskPrefixDataset(
+            tokenizer,
+            data_dir=args.data_dir,
+            type_path=base,
+            prefix=args.prefix or task.prefix,
+            max_source_length=task.max_source_length,
+            max_target_length=task.max_target_length,
+            separate_vocab=(task.output_layer != 'seq2seq'),
+        )
+        test_loader = DataLoader(testset,
+        batch_size=args.batch_size,
+        collate_fn=partial(data_collator, pad_token_id=tokenizer.pad_token_id),
+        )
 
-            # load in T5ForConditionalGeneration used in seq2seq model 
-            model_cls = T5ForConditionalGeneration
-            #allow possibility to predict using best checkpoint
-            if args.best_cp:
-                model = model_cls.from_pretrained(best_files[0])
-            else:
-                model = model_cls.from_pretrained(args.model_dir)
+        # load in T5ForConditionalGeneration used in seq2seq model 
+        model_cls = T5ForConditionalGeneration
+        #allow possibility to predict using best checkpoint
+        if args.best_cp:
+            model = model_cls.from_pretrained(best_files[0])
+        else:
+            model = model_cls.from_pretrained(args.model_dir)
         
-            model = model.to(device)
-            model.eval()
+        model = model.to(device)
+        model.eval()
 
-            # Prediction
-            if task.output_layer == 'seq2seq':
+        # Prediction
+        if task.output_layer == 'seq2seq':
             predictions = [[] for _ in range(args.num_preds)]
             task_params = {
                 "early_stopping": True,
@@ -207,7 +218,7 @@ def predict(args):
                 "num_beams": args.num_beams,
                 "num_return_sequences": args.num_preds,
                 "decoder_start_token_id": tokenizer.pad_token_id,
-                }
+            }
             for batch in tqdm(test_loader, desc="Predicting"):
                 for k, v in batch.items():
                     batch[k] = v.to(device)
@@ -225,89 +236,92 @@ def predict(args):
                 out["target"] = targets_raw
             test_df = pd.concat([out, pred_df], axis=1)
 
-            # compute metrics for seq2seq task
-            if targets_raw is not None:
-                for i, preds in enumerate(predictions):
-                    test_df['prediction_{}'.format(i + 1)] = preds
-                    test_df['prediction_{}'.format(i + 1)] = test_df['prediction_{}'.format(i + 1)].apply(standize)
-                test_df['rank'] = test_df.apply(lambda row: get_rank(row, 'prediction_', args.num_preds), axis=1)
+        # compute metrics for seq2seq task
+        if targets_raw is not None:
+            for i, preds in enumerate(predictions):
+                test_df['prediction_{}'.format(i + 1)] = preds
+                test_df['prediction_{}'.format(i + 1)] = test_df['prediction_{}'.format(i + 1)].apply(standize)
+            test_df['rank'] = test_df.apply(lambda row: get_rank(row, 'prediction_', args.num_preds), axis=1)
 
-                correct = 0
-                invalid_smiles = 0
-                for i in range(1, args.num_preds+1):
-                    correct += (test_df['rank'] == i).sum()
-                    invalid_smiles += (test_df['prediction_{}'.format(i)] == '').sum()
-                    print('Top-{}: {:.1f}% || Invalid {:.2f}%'.format(i, correct/len(test_df)*100, \
-                        invalid_smiles/len(test_df)/i*100))
-
-            if args.regression_targets is not None:
-                reg_targets = pd.read_csv(args.regression_targets, names=['pKa targets'])
-                reg_targets["target"] = pd.to_numeric(reg_targets["target"], errors="coerce")
-                new_test_df = pd.concat([test_df, reg_targets], axis=1)
+            correct = 0
+            invalid_smiles = 0
+            for i in range(1, args.num_preds+1):
+                correct += (test_df['rank'] == i).sum()
+                invalid_smiles += (test_df['prediction_{}'.format(i)] == '').sum()
+                print('Top-{}: {:.1f}% || Invalid {:.2f}%'.format(i, correct/len(test_df)*100, \
+                    invalid_smiles/len(test_df)/i*100))
+        if args.regression_targets is not None:
+            reg_targets = pd.read_csv(args.regression_targets, names=['target'])
+            test_df["target"] = pd.to_numeric(reg_targets["target"], errors="coerce")
+            new_test_df = test_df.copy()
+        else:
+            new_test_df = test_df.copy()
         
-            new_test_df[['prefix','smiles']] = new_test_df['input'].str.split(':',expand=True)
-            pairs, skip_indices = [], []
-            for i, (x, y, z) in enumerate(zip(new_test_df['smiles'], new_test_df['prediction_1'], new_test_df['prediction_2'])):
-            # choose prediction: prefer y if valid, otherwise z
-                if pd.notna(y):
-                    pred = y
-                elif pd.notna(z):
-                    pred = z
-                else:
-                    skip_indices.append(i)
-                    continue  # skip if both are NaN
+        new_test_df[['prefix','smiles']] = new_test_df['input'].str.split(':',expand=True)
+        pairs, skip_indices = [], []
+        for i, (x, y, z) in enumerate(zip(new_test_df['smiles'], new_test_df['prediction_1'], new_test_df['prediction_2'])):
+        # choose prediction: prefer y if valid, otherwise z
+            if pd.notna(y):
+                pred = y
+            elif pd.notna(z):
+                pred = z
+            else:
+                skip_indices.append(i)
+                continue  # skip if both are NaN
 
-                mol1 = Chem.MolFromSmiles(str(x))
-                mol2 = Chem.MolFromSmiles(str(pred))
+            mol1 = Chem.MolFromSmiles(str(x))
+            mol2 = Chem.MolFromSmiles(str(pred))
 
-                # skip invalid SMILES
-                if mol1 is None or mol2 is None:
-                    skip_indices.append(i)
-                    continue
+            # skip invalid SMILES
+            if mol1 is None or mol2 is None:
+                skip_indices.append(i)
+                continue
 
-                # compute formal charges
-                charge1 = sum(atom.GetFormalCharge() for atom in mol1.GetAtoms())
-                charge2 = sum(atom.GetFormalCharge() for atom in mol2.GetAtoms())
+            # compute formal charges
+            charge1 = sum(atom.GetFormalCharge() for atom in mol1.GetAtoms())
+            charge2 = sum(atom.GetFormalCharge() for atom in mol2.GetAtoms())
 
-                # ensure correct direction
-                if (charge1 == 1 and charge2 == 0) or (charge1 == 0 and charge2 == -1):
-                    pair = f"{Chem.MolToSmiles(mol1)}>>{Chem.MolToSmiles(mol2)}"
-                elif (charge2 == 1 and charge1 == 0) or (charge2 == 0 and charge1 == -1):
-                    pair = f"{Chem.MolToSmiles(mol2)}>>{Chem.MolToSmiles(mol1)}"
-                elif charge1 > charge2:
-                    pair = f"{Chem.MolToSmiles(mol1)}>>{Chem.MolToSmiles(mol2)}"
-                elif charge1 < charge2:
-                    pair = f"{Chem.MolToSmiles(mol2)}>>{Chem.MolToSmiles(mol1)}"
-                else:
-                    # not a +1↔0 or 0↔−1 transition
-                    skip_indices.append(i)
-                    continue
+            # ensure correct direction
+            if (charge1 == 1 and charge2 == 0) or (charge1 == 0 and charge2 == -1):
+                pair = f"{Chem.MolToSmiles(mol1)}>>{Chem.MolToSmiles(mol2)}"
+            elif (charge2 == 1 and charge1 == 0) or (charge2 == 0 and charge1 == -1):
+                pair = f"{Chem.MolToSmiles(mol2)}>>{Chem.MolToSmiles(mol1)}"
+            elif charge1 > charge2:
+                pair = f"{Chem.MolToSmiles(mol1)}>>{Chem.MolToSmiles(mol2)}"
+            elif charge1 < charge2:
+                pair = f"{Chem.MolToSmiles(mol2)}>>{Chem.MolToSmiles(mol1)}"
+            else:
+                # not a +1↔0 or 0↔−1 transition
+                skip_indices.append(i)
+                continue
 
-                pairs.append(pair)
+            pairs.append(pair)
 
-            # drop skipped rows from targets
-            new_test_df = new_test_df.drop(skip_indices).reset_index(drop=True)
-            print(f"Skipped {len(skip_indices)} rows due to missing predictions or invalid charge transitions.")
+        # drop skipped rows from targets
+        new_test_df = new_test_df.drop(skip_indices).reset_index(drop=True)
+        print(f"Skipped {len(skip_indices)} rows due to missing predictions or invalid charge transitions.")
 
-            # add pairs into dataset to be predicted by regression model
-            new_test_df['source'] = pairs
+        # add pairs into dataset to be predicted by regression model
+        new_test_df['source'] = pairs
 
-            # preparing to enter regression ensemble model loop
-            if not args.regression_model_dir:
-                raise ValueError("When --unify True, you must provide --regression_model_dir")
-            reg_model_dir = args.regression_model_dir
-
-            reg_smiles_list = new_test_df['source'].astype(str).tolist()
-
+        # preparing to enter regression ensemble model loop
+        if not args.regression_model_dir:
+            raise ValueError("When --unify True, you must provide --regression_model_dir")
+        reg_model_dir = args.regression_model_dir
+        reg_smiles_list = new_test_df['source'].astype(str).tolist()
+        reg_targets_list = new_test_df['target'].astype(float).tolist()
+    else:
+        reg_model_dir = args.model_dir 
+        reg_smiles_list = None
+        reg_targets_raw = None
     all_predictions, all_targets = [], []
-    #breakpoint()
     for i in range(1,11):
         # option to chose the best checkpoint to run prediction (read in config)
         if args.best_cp == True:
-            best_files = glob.glob(args.model_dir + str(i) +'/best_*/')
+            best_files = glob.glob(reg_model_dir + str(i) +'/best_*/')
             config = T5Config.from_pretrained(best_files[0])
         else:
-            config = T5Config.from_pretrained(args.model_dir + str(i) )
+            config = T5Config.from_pretrained(reg_model_dir + str(i) )
         
         # get task type information
         task = T5ChemTasks[config.task_type]
@@ -316,7 +330,7 @@ def predict(args):
         tokenizer_type = getattr(config, "tokenizer")
         tokenizer_map = {"simple": SimpleTokenizer,"atom": AtomTokenizer, "selfies": SelfiesTokenizer }
         Tokenizer = tokenizer_map.get(tokenizer_type)
-        tokenizer = Tokenizer(vocab_file=os.path.join(args.model_dir, str(i)+'/vocab.pt'))
+        tokenizer = Tokenizer(vocab_file=os.path.join(reg_model_dir, str(i)+'/vocab.pt'))
         if os.path.isfile(args.data_dir):
             args.data_dir, base = os.path.split(args.data_dir)
             base = base.split('.')[0]
@@ -328,13 +342,26 @@ def predict(args):
             scaler = joblib.load(os.path.join(args.scaler_random,str(i)+'/MinMaxScaler.gz')) 
         else:
             scaler = joblib.load(os.path.join(args.scaler_scaffold,str(i - 5)+'/MinMaxScaler.gz')) 
+        if args.unify:
+            testset = TaskPrefixDataset(
+                        tokenizer,
+                        smiles_list=reg_smiles_list,
+                        prefix=args.prefix or task.prefix,
+                        max_source_length=task.max_source_length,
+                        max_target_length=task.max_target_length,
+                        separate_vocab=(task.output_layer != 'seq2seq'),
+                        )
+        else:
+            testset = TaskPrefixDataset(
+                        tokenizer,
+                        data_dir=args.data_dir,
+                        type_path=base,
+                        prefix=args.prefix or task.prefix,
+                        max_source_length=task.max_source_length,
+                        max_target_length=task.max_target_length,
+                        separate_vocab=(task.output_layer != 'seq2seq'),
+                        )
 
-        testset = TaskPrefixDataset(tokenizer, data_dir=args.data_dir,
-                                    prefix=args.prefix or task.prefix,
-                                    max_source_length=task.max_source_length,
-                                    max_target_length=task.max_target_length,
-                                    separate_vocab=(task.output_layer != 'seq2seq'),
-                                    type_path=base)
         data_collator_padded = partial(data_collator, pad_token_id=tokenizer.pad_token_id)
         test_loader = DataLoader(
                 testset, 
@@ -346,10 +373,10 @@ def predict(args):
         predictions = np.zeros((len(testset), num_targets))
         targets = np.zeros_like(predictions)
         if args.best_cp == True:
-            best_files = glob.glob(args.model_dir + str(i) +'/best_*/')
+            best_files = glob.glob(reg_model_dir + str(i) +'/best_*/')
             model = T5ForProperty.from_pretrained(best_files[0])
         else:
-            model = T5ForProperty.from_pretrained(args.model_dir + str(i))
+            model = T5ForProperty.from_pretrained(reg_model_dir + str(i))
         model.eval()
         model = model.to(device)
 
@@ -367,8 +394,10 @@ def predict(args):
         all_targets.append(targets)
         predictions = scaler.inverse_transform(predictions)
         all_predictions.append(predictions)
-
-    d = {'targets': all_targets[0].flatten()}
+    if args.unify == True:
+        d = {'targets': reg_targets_list}
+    else:
+        d = {'targets': all_targets[0].flatten()}
     df = pd.DataFrame(data=d)
     for i in range(len(all_predictions)):
         df['prediction_'+str(i)] = all_predictions[i]
@@ -405,7 +434,7 @@ def predict(args):
     print('RMSE scaffold split:', mean_squared_error(df['targets'], df['scaffold split average'], squared=False))
 
     if not args.prediction:
-        args.prediction = os.path.join(args.model_dir, 'predictions_'+base+'.csv')
+        args.prediction = os.path.join(reg_model_dir, 'predictions_'+base+'.csv')
     else: 
         df.to_csv(args.prediction, index=False)
 
