@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "t5pKa"
+version = "1.0.0"
+description = "Reproducible environment for T5Chem or T5pKa"
+requires-python = "==3.9.10"
+readme = "README.md"
+
+dependencies = [
+    "numpy==1.24.4",
+    "torch==1.7.1",
+    "torchtext==0.8.1",
+    "pandas==1.4.2",
+    "rdkit-pypi==2022.03.2",
+    "scipy==1.8.1",
+    "joblib==1.1.0",
+    "scikit-learn==1.1.1",
+    "tqdm==4.64.0",
+    "huggingface_hub==0.7.0",
+    "transformers==4.10.2",
+    "tokenizers==0.10.3",
+    "h5py==3.7.0",
+    "shap==0.46.0",
+    "EFGs==0.8.4",
+    "matplotlib==3.9.4",
+    "ipython==8.4.0"
+]
+
+[project.scripts]  
+t5pka = "t5pka.__main__:main"
+
+#[tool.setuptools]
+#py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+
