@@ -5,9 +5,17 @@
 
 `$ git clone https://github.com/charlotteinfante/t5pKa.git`
 
+`$ conda create -n t5pKa python=3.9.10`
+
+`$ conda activate t5pKa`
+
 `$ cd t5pka`
 
 `$ pip install .`
+
+`$ pip uninstall -y torch`
+
+`$ pip install torch==1.7.1+cu110 -f https://download.pytorch.org/whl/torch_stable.html`
 
 # Run Predictions
 Run single prediction:
