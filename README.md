@@ -1,6 +1,9 @@
 # Installation
 
-$ pip install t5chem == 1.0.0
+`$ git clone https://github.com/charlotteinfante/t5pKa.git`
+`$ cd t5pka`
+`$ pip install .`
+
 # Run Predictions
 Run single prediction:
 
