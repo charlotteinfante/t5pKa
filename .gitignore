@@ -1,3 +1,4 @@
+*.ipynb
 READ*
 temp_model
 shap_*_*
