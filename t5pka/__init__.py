@@ -6,7 +6,7 @@ from .mol_tokenizers import (AtomTokenizer, MolTokenizer, SelfiesTokenizer,
                              SimpleTokenizer)
 from .trainer import EarlyStopTrainer
 
-__author__ = 'Jocelyn Lu <jl8570@nyu.edu>'
+__author__ = ['Jocelyn Lu <jl8570@nyu.edu>','Charlotte Infante <cii2002@nyu.edu>']
 __all__: list = [
     "TaskPrefixDataset",
     "data_collator",

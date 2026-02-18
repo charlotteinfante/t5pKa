@@ -1,4 +1,4 @@
-""" Current version of the t5chem application.
+""" Current version of the t5pKa application.
 This project uses the Semantic Versioning scheme in conjunction with PEP 0440:
     <http://semver.org/>
     <https://www.python.org/dev/peps/pep-0440>
@@ -10,4 +10,4 @@ incomplete states of a release .
 Version 0.x should be considered a development version with an unstable API,
 and backwards compatibility is not guaranteed for minor versions.
 """
-__version__ = '1.3.0'
+__version__ = '1.0.0'
