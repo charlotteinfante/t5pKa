@@ -3,7 +3,7 @@
 
 # Installation
 
-`$ git clone https://github.com/charlotteinfante/t5pKa.git`
+<pre> ```bash git clone https://github.com/charlotteinfante/t5pKa.git cd t5pKa ``` </pre>
 
 `$ conda create -n t5pKa python=3.9.10`
 
