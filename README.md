@@ -1,4 +1,4 @@
-# T5pKa: a sequence-based model for microstate and pKₐ prediction
+# T5pKa: a sequence-based model for microstate and pKa prediction
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Hugging Face](https://img.shields.io/badge/Hugging%20Face%20Checkpoints-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/charlotteinfante/t5pka_checkpoint/tree/main)
@@ -29,6 +29,10 @@ This repo requires Torch 1.7.1 (CUDA 11.0 build)
 pip uninstall -y torch
 pip install torch==1.7.1+cu110 -f https://download.pytorch.org/whl/torch_stable.html
 ```
+
+## Datasets
+There are two datasets that are used in this model: (1) the calculated pKa data and (2) the experimental pKa dataset. Due to licensing restrictions, we set up a repository with instructions on how to get the calculated pKa data found in https://github.com/charlotteinfante/t5pKa-data. The experimental pKa data can be found on Zenodo https://zenodo.org/records/18704856. 
+
 
 ## Run Predictions
 Run single prediction:
