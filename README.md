@@ -33,6 +33,18 @@ pip install torch==1.7.1+cu110 -f https://download.pytorch.org/whl/torch_stable.
 ## Datasets
 There are two datasets that are used in this model: (1) the calculated pKa data and (2) the experimental pKa dataset. Due to licensing restrictions, we set up a repository with instructions on how to get the calculated pKa data found in https://github.com/charlotteinfante/t5pKa-data. The experimental pKa data can be found on Zenodo https://zenodo.org/records/18704856. 
 
+## Training 
+To train regression model
+```
+bash
+python __main__.py train --data_dir /path/to/train_folder/ --output_dir /path/to/output_directory/ --task_type micropka --pretrain /path/to/pretrained_model/ --num_epoch 150 --batch_size 128 --init_lr 5e-4
+```
+
+To train sequence-to-sequence model
+```
+bash
+python __main__.py train --data_dir /path/to/train_folder/ --output_dir /path/to/output_directory/ --task_type mixed --pretrain /path/to/pretrained_model/ --num_epoch 150 --batch_size 128 --init_lr 6e-4
+```
 
 ## Run Predictions
 Run single prediction:
