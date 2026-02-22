@@ -31,10 +31,10 @@ pip install torch==1.7.1+cu110 -f https://download.pytorch.org/whl/torch_stable.
 ```
 
 ## Datasets
-There are two datasets that are used in this model: (1) the calculated pKa data and (2) the experimental pKa dataset. Due to licensing restrictions, we set up a repository with instructions on how to get the calculated pKa data found in https://github.com/charlotteinfante/t5pKa-data. The experimental pKa data can be found on Zenodo https://zenodo.org/records/18704856. 
+There are two datasets that are used in this model: (1) the calculated pKa data and (2) the experimental pKa dataset. Due to licensing restrictions, we set up a repository with instructions on how to get the calculated pKa data found in https://github.com/charlotteinfante/t5pKa-data. The experimental pKa data can be found on [Zenodo](https://zenodo.org/records/18704856). 
 
 ## Training 
-Find model checkpoints [here](https://huggingface.co/charlotteinfante/t5pka_checkpoint/)
+Find model checkpoints [here](https://huggingface.co/charlotteinfante/t5pka_checkpoint/) !
 
 To train regression model
 ```bash
