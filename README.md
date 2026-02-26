@@ -56,7 +56,7 @@ python run_prediction.py --smiles "Prot:Brc1ccc(C2CN3C=CSC3=N2)cc1" --model_dir 
 
 **(B)** Predict deprotonated area of molecule
 ```bash
-python run_prediction.py --smiles "Deprot:SMILES" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv
+python run_prediction.py --smiles "Deprot:C[C@@H](O)C(=O)O" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv
 ```
 
 **(C)** Predict pKa of molecule
@@ -64,6 +64,10 @@ python run_prediction.py --smiles "Deprot:SMILES" --model_dir /path/to/model --p
 ```bash
 python run_prediction.py --smiles "Brc1ccc(C2C[NH+]3C=CSC3=N2)cc1>>Brc1ccc(C2CN3C=CSC3=N2)cc1" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv --scaler /path/to/scaler
 ```
+```bash
+python run_prediction.py --smiles "C[C@@H](O)C(=O)O>>C[C@@H](O)C(=O)[O-]" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv --scaler /path/to/scaler
+```
+
 
 Run bulk prediction:
 
