@@ -62,7 +62,7 @@ python run_prediction.py --smiles "Deprot:SMILES" --model_dir /path/to/model --p
 **(C)** Predict pKa of molecule
 
 ```bash
-python run_prediction.py --smiles "Brc1ccc(C2CN3C=CSC3=N2)cc1>>Brc1ccc(C2C[NH+]3C=CSC3=N2)cc1" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv --scaler /path/to/scaler
+python run_prediction.py --smiles "Brc1ccc(C2C[NH+]3C=CSC3=N2)cc1>>Brc1ccc(C2CN3C=CSC3=N2)cc1" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv --scaler /path/to/scaler
 ```
 
 Run bulk prediction:
