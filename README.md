@@ -18,7 +18,7 @@ cd t5pKa
 
 ### Create the environment 
 ```bash
-conda create -n t5pKa python=3.9.10
+conda create -n t5pKa python=3.9
 conda activate t5pKa
 pip install .
 ```
