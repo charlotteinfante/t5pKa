@@ -30,28 +30,20 @@ pip uninstall -y torch
 pip install torch==1.7.1+cu110 -f https://download.pytorch.org/whl/torch_stable.html
 ```
 
+## Demo
+T5pKa demo can be seen on Hugging Face Spaces: https://huggingface.co/spaces/charlotteinfante/t5pka-demo
+
 ## Datasets
 There are two datasets that are used in this model: (1) the calculated pKa data and (2) the experimental pKa dataset. Due to licensing restrictions, we set up a repository with instructions on how to get the calculated pKa data found in https://github.com/charlotteinfante/t5pKa-data. The experimental pKa data can be found on [Zenodo](https://zenodo.org/records/18704856). 
 
-## Training 
+## Run Predictions
 Find model checkpoints [here](https://huggingface.co/charlotteinfante/t5pka_checkpoint/) !
 
-To train regression model
-```bash
-python __main__.py train --data_dir /path/to/train_folder/ --output_dir /path/to/output_directory/ --task_type micropka --pretrain /path/to/pretrained_model/ --num_epoch 150 --batch_size 128 --init_lr 5e-4
-```
-
-To train sequence-to-sequence model
-```bash
-python __main__.py train --data_dir /path/to/train_folder/ --output_dir /path/to/output_directory/ --task_type mixed --pretrain /path/to/pretrained_model/ --num_epoch 150 --batch_size 128 --init_lr 6e-4
-```
-
-## Run Predictions
 Run single prediction:
 
 **(A)** Predict protonated area of molecule
 ```bash
-python run_prediction.py --smiles "Prot:Brc1ccc(C2CN3C=CSC3=N2)cc1" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv
+python run_prediction.py --smiles "Prot:Brc1ccc(C2CN3C=CSC3=N2)cc1" --model_dir ~/T5pKa_Review/SEQUENCETOSEQUENCE/ --prediction ~/T5pKa_Review/SEQUENCETOSEQUENCE/prediction.csv
 ```
 
 **(B)** Predict deprotonated area of molecule
@@ -62,7 +54,7 @@ python run_prediction.py --smiles "Deprot:C[C@@H](O)C(=O)O" --model_dir /path/to
 **(C)** Predict pKa of molecule
 
 ```bash
-python run_prediction.py --smiles "Brc1ccc(C2C[NH+]3C=CSC3=N2)cc1>>Brc1ccc(C2CN3C=CSC3=N2)cc1" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv --scaler /path/to/scaler
+python run_prediction.py --smiles "Brc1ccc(C2C[NH+]3C=CSC3=N2)cc1>>Brc1ccc(C2CN3C=CSC3=N2)cc1" --model_dir ~/T5pKa_Review/REGRESSION/ --prediction ~/T5pKa_Review/REGRESSION/prediction.csv --scaler ~/T5pKa_Review/REGRESSION/
 ```
 ```bash
 python run_prediction.py --smiles "C[C@@H](O)C(=O)O>>C[C@@H](O)C(=O)[O-]" --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv --scaler /path/to/scaler
@@ -73,15 +65,26 @@ Run bulk prediction:
 
 **(A)** Predict the ionization of more than one molecule
 ```bash
-python run_prediction.py --data_dir /path/to/data --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv
+python run_prediction.py --data_dir ~/testsets/NOVARTIS/MICROSTATE/ --model_dir ~/T5pKa_Review/SEQUENCETOSEQUENCE/ --prediction ~/T5pKa_Review/SEQUENCETOSEQUENCE/novartis_prediction.csv
 ```
 
 **(B)** Predict the pKa of more than one molecule
 ```bash
-python run_prediction.py --data_dir /path/to/data --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv --scaler /path/to/scaler
+python run_prediction.py --data_dir /path/to/data --model_dir ~/T5pKa_Review/REGRESSION/ --prediction ~/T5pKa_Review/REGRESSION/prediction.csv --scaler ~/T5pKa_Review/REGRESSION/
 ```
 
 **(C)** Predict the pKa of more than one molecule using ensemble model
 ```bash
-python ensemble_prediction.py --data_dir /path/to/data --model_dir /path/to/model --prediction /path/to/prediction/prediction.csv --scaler_random /path/to/scaler --scaler_scaffold /path/to/scaler
+python ensemble_prediction.py --data_dir ~/testsets/NOVARTIS/MICROPKA/ --model_dir ~/REGRESSION/ --prediction ~/REGRESSION/nov_ensemble_prediction.csv --scaler_random ~/REGRESSION/RANDOM/ --scaler_scaffold ~/REGRESSION/SCAFFOLD/
+```
+
+## Training 
+To train regression model
+```bash
+python __main__.py train --data_dir /path/to/train_folder/ --output_dir /path/to/output_directory/ --task_type micropka --pretrain /path/to/pretrained_model/ --num_epoch 150 --batch_size 128 --init_lr 5e-4
+```
+
+To train sequence-to-sequence model
+```bash
+python __main__.py train --data_dir /path/to/train_folder/ --output_dir /path/to/output_directory/ --task_type mixed --pretrain /path/to/pretrained_model/ --num_epoch 150 --batch_size 128 --init_lr 6e-4
 ```
