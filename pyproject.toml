@@ -1,46 +1,48 @@
-[build-system]  
-requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]  
-build-backend = "setuptools.build_meta"  
+[build-system]
+requires = ["setuptools>=82", "wheel>=0.47"]
+build-backend = "setuptools.build_meta"
 
-[project]  
-name = "t5chem"  
-dynamic = ["version"]
-description = "A Unified Deep Learning Model for Multi-task Reaction Predictions"  
-readme = "README.rst"  
-authors = [  
-    {name = "Jocelyn Lu", email = "jl8570@nyu.edu"},  
-]  
-license = {text = "MIT"}  
-classifiers = [  
-    "Development Status :: 2 - Pre-Alpha",  
-    "License :: OSI Approved :: MIT License",  
-    "Programming Language :: Python :: 3.7",  
-]  
-requires-python = ">=3.7"  
-dependencies = [  
-    "transformers>=4.38.0",  
-    "accelerate>=0.26.0",
-    "tokenizers>=0.19.1",
-    "torch>=2.2.0",
-    "scikit-learn>=1.5.0",  
-    "scipy>=1.6.0",  
-    "wandb>=0.18.0",  
-    "pandas>=1.2.4",  
-    "rdkit>=2022.9.4",  
-]  
+[project]
+name = "t5pKa"
+version = "1.0.0"
+description = "Reproducible environment for T5Chem or T5pKa"
+requires-python = ">=3.11,<3.13"
+readme = "README.md"
 
-[tool.setuptools.dynamic]  
-version = {attr = "t5chem.__version__.__version__"} 
+dependencies = [
+    "numpy>=2.4,<3",
+    "pandas>=3.0,<4",
+    "scipy>=1.17,<2",
+    "scikit-learn>=1.8,<2",
+    "joblib>=1.5,<2",
+    "tqdm>=4.67,<5",
+    "torch>=2.12,<3",
+    "transformers>=5.8,<6",
+    "huggingface_hub>=1.15,<2",
+    "accelerate>=1.13,<2",
+    "datasets>=4.8,<5",
+    "rdkit>=2026.3",
+    "h5py>=3.16,<4",
+    "matplotlib>=3.10,<4",
+    "ipython>=9.13,<10"
+]
 
-[project.urls]  
-Homepage = "https://github.com/HelloJocelynLu/t5chem"  
+[project.optional-dependencies]
+analysis = [
+    "shap>=0.51,<1",
+    "EFGs==0.8.4",
+    "selfies>=2.2,<3"
+]
 
-[project.scripts]  
-t5chem = "t5chem.__main__:main"  
+dev = [
+    "pytest>=9,<10",
+    "ruff>=0.15,<1",
+    "black>=26,<27",
+    "ipykernel>=7,<8"
+]
 
-[tool.setuptools]  
-packages = ["t5chem"]  
-package-data = {"t5chem" = ["vocab/*"]}  
+[project.scripts]
+t5pka = "t5pka.__main__:main"
 
-[tool.setuptools.exclude-package-data]  
-"*" = ["tests/*"]
+[tool.setuptools.packages.find]
+where = ["."]

@@ -8,6 +8,12 @@ from rdkit.Chem import DataStructs
 from scipy.stats import pearsonr, zscore
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+try:
+    from t5pka.compat import rmse
+except ImportError:
+    def rmse(y_true, y_pred):
+        return np.sqrt(mean_squared_error(y_true, y_pred))
+
 def random_split(data, train_ratio, test_ratio, seed):
     '''
     Performs random splitting based on a given ratio for the training, validation, and test sets. 
@@ -122,10 +128,10 @@ def combine_scaffold_and_random_predictions(random_average, scaffold_average):
 
     #evaluate
     r_value, prob = pearsonr(rand['targets'], rand['average'])
-    rmse = mean_squared_error(rand['targets'], rand['average'], squared=False)
+    rmse_value = rmse(rand['targets'], rand['average'])
     mae = mean_absolute_error(rand['targets'], rand['average'])
     r2 = r2_score(rand['targets'], rand['average'])
-    values = {'RMSE': rmse, 'MAE': mae, 'r2': r2, 'r': r_value}
+    values = {'RMSE': rmse_value, 'MAE': mae, 'r2': r2, 'r': r_value}
     return rand, values
 
 def plot_macropka_results(acid, basic=None, title=None):
@@ -280,7 +286,6 @@ def get_atom_idx_based_on_charge(smiles):
             print(scaffold)
         
 #get_atom_idx_based_on_charge('Clc1ccc(C[N-]c2ncnc3ccccc23)cc1')
-
 
 
 

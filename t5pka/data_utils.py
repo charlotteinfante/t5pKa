@@ -1,0 +1,304 @@
+import linecache
+import os
+from typing import Dict, List, NamedTuple, Optional
+
+import numpy as np
+import torch
+import h5py
+from rdkit import Chem
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import Dataset
+from transformers import BatchEncoding, PreTrainedTokenizer
+from transformers.trainer_utils import PredictionOutput
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import f1_score, roc_auc_score
+
+try:
+    from .compat import line_count
+except ImportError:
+    from compat import line_count
+
+
+class TaskSettings(NamedTuple):
+    prefix: str
+    max_source_length: int
+    max_target_length: int
+    output_layer: str
+
+
+T5ChemTasks: Dict[str, TaskSettings] = {
+    'product': TaskSettings('Product:', 400, 200, 'seq2seq'),
+    'reactants': TaskSettings('Reactants:', 200, 300, 'seq2seq'),
+    'reagents': TaskSettings('Reagents:', 400, 200, 'seq2seq'),
+    'classification': TaskSettings('Classification:', 500, 1, 'classification'),
+    'regression': TaskSettings('Yield:', 500, 1, 'regression'),
+    'pretrain': TaskSettings('Fill-Mask:', 400, 200, 'seq2seq'),
+    'mixed': TaskSettings('', 400, 300, 'seq2seq'),
+    'micropka': TaskSettings('Pairs:', 500, 1, 'regression'), #added 
+    'macropka': TaskSettings('', 500, 1, 'regression'), #added
+}
+
+
+def canonicalize_smiles_text(text: str) -> str:
+    if not text:
+        return text
+
+    prefix = ""
+    body = text
+    if ":" in text:
+        maybe_prefix, maybe_body = text.split(":", 1)
+        if maybe_prefix.isalpha():
+            prefix = maybe_prefix + ":"
+            body = maybe_body
+
+    if ">>" in body:
+        parts = body.split(">>")
+        if len(parts) != 2:
+            return text
+        canonical_parts = []
+        for part in parts:
+            mol = Chem.MolFromSmiles(part)
+            if mol is None:
+                return text
+            canonical_parts.append(Chem.MolToSmiles(mol, canonical=True))
+        return prefix + ">>".join(canonical_parts)
+
+    mol = Chem.MolFromSmiles(body)
+    if mol is None:
+        return text
+    return prefix + Chem.MolToSmiles(mol, canonical=True)
+
+
+class LineByLineTextDataset(Dataset):
+    def __init__(
+        self, 
+        tokenizer: PreTrainedTokenizer, 
+        file_path: str, 
+        block_size: int, 
+        prefix: str = ''
+    ) -> None:
+        assert os.path.isfile(file_path), f"Input file path {file_path} not found"
+        
+        self.prefix: str = prefix
+        self._file_path: str = file_path
+        self._len: int = line_count(file_path)
+        self.tokenizer: PreTrainedTokenizer = tokenizer
+        self.max_length: int = block_size
+        
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        line: str = linecache.getline(self._file_path, idx + 1).strip()
+        sample: BatchEncoding = self.tokenizer(
+                        self.prefix+line,
+                        max_length=self.max_length,
+                        padding="do_not_pad",
+                        truncation=True,
+                        return_tensors='pt',
+                    )
+        return sample['input_ids'].squeeze(0)
+      
+    def __len__(self) -> int:
+        return self._len
+
+
+class TaskPrefixDataset(Dataset):
+    def __init__(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        data_dir: Optional[str] = None,
+        smiles_list: Optional[List[str]] = None,
+        target_list: Optional[List[str]] = None,
+        prefix: str='',
+        type_path: str="train",
+        max_source_length: int=300,
+        max_target_length: int=100,
+        separate_vocab: bool=False,
+        canonicalize_smiles: bool=False,
+    ) -> None:
+        super().__init__()
+
+        self.prefix: str = prefix
+        self.tokenizer: PreTrainedTokenizer = tokenizer
+        self.max_source_len: int = max_source_length
+        self.max_target_len: int = max_target_length
+        self.sep_vocab: bool = separate_vocab
+        self.canonicalize_smiles: bool = canonicalize_smiles
+        if smiles_list is not None:
+            self.sources = smiles_list
+            self.targets = ["0"] * len(smiles_list)
+        else:
+            assert data_dir is not None, "data_dir needed if no SMILES provided"
+            self._source_path: str = os.path.join(data_dir, type_path + ".source")
+            self._target_path: str = os.path.join(data_dir, type_path + ".target")
+            self._len_source: int = line_count(self._source_path)
+            self._len_target: int = line_count(self._target_path)
+            assert self._len_source == self._len_target, "Source file and target file don't match!"
+            self.sources = [linecache.getline(self._source_path, i + 1).strip() for i in range(self._len_source)]
+            self.targets = [linecache.getline(self._target_path, i + 1).strip() for i in range(self._len_target)]
+
+    def __len__(self) -> int:
+        return len(self.sources)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        source_line = self.sources[idx]
+        target_line = self.targets[idx]
+        if self.canonicalize_smiles:
+            source_line = canonicalize_smiles_text(source_line)
+            if not self.sep_vocab:
+                target_line = canonicalize_smiles_text(target_line)
+        #source_line: str = linecache.getline(self._source_path, idx + 1).strip()
+        #target_line: str = linecache.getline(self._target_path, idx + 1).strip()
+        source_sample: BatchEncoding = self.tokenizer(
+                        self.prefix+source_line,
+                        max_length=self.max_source_len,
+                        padding="do_not_pad",
+                        truncation=True,
+                        return_tensors='pt',
+                    )
+        if self.sep_vocab:
+            try:
+                target_value: List[float] = [float(x) for x in target_line.split(',')]
+                target_ids: torch.Tensor = torch.Tensor(target_value)
+            except ValueError:
+                print("The target should be a number, \
+                        not {}".format(target_line))
+                raise AssertionError
+        else:
+            target_sample: BatchEncoding = self.tokenizer(
+                            target_line,
+                            max_length=self.max_target_len,
+                            padding="do_not_pad",
+                            truncation=True,
+                            return_tensors='pt',
+                        )
+            target_ids = target_sample["input_ids"].squeeze(0)
+        source_ids: torch.Tensor = source_sample["input_ids"].squeeze(0)
+        src_mask: torch.Tensor = source_sample["attention_mask"].squeeze(0)
+        return {"input_ids": source_ids, "attention_mask": src_mask,
+                "decoder_input_ids": target_ids}
+
+    def sort_key(self, ex: BatchEncoding) -> int:
+        """ Sort using length of source sentences. """
+        return len(ex['input_ids'])
+
+
+class PropertyPretrainDataset(Dataset):
+    def __init__(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        data_dir: str,
+        prefix: str='',
+        type_path: str="train",
+        max_source_length: int=300,
+    ) -> None:
+        super().__init__()
+
+        self.prefix: str = prefix
+        self._source_path: str = os.path.join(data_dir, type_path + ".source")
+        self._target_path: str = os.path.join(data_dir, type_path + ".hdf5")
+        self.tokenizer: PreTrainedTokenizer = tokenizer
+        self.max_source_len: int = max_source_length
+        self.h5py_file = h5py.File(self._target_path, "r")
+        self.targets = self.h5py_file['dataset']
+
+    def __len__(self) -> int:
+        return len(self.targets)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        source_line: str = linecache.getline(self._source_path, idx + 1).strip()
+        source_sample: BatchEncoding = self.tokenizer(
+                        self.prefix+source_line,
+                        max_length=self.max_source_len,
+                        padding="do_not_pad",
+                        truncation=True,
+                        return_tensors='pt',
+                    )
+        target_ids: torch.Tensor = torch.from_numpy(self.targets[idx]).to(torch.FloatTensor())
+        source_ids: torch.Tensor = source_sample["input_ids"].squeeze(0)
+        src_mask: torch.Tensor = source_sample["attention_mask"].squeeze(0)
+        return {"input_ids": source_ids, "attention_mask": src_mask,
+                "decoder_input_ids": target_ids}
+
+    def __del__(self):
+        self.h5py_file.close()
+
+    def sort_key(self, ex: BatchEncoding) -> int:
+        """ Sort using length of source sentences. """
+        return len(ex['input_ids'])
+
+
+def data_collator(batch: List[BatchEncoding], pad_token_id: int, normalize: Optional[MinMaxScaler] = None) -> Dict[str, torch.Tensor]:
+    whole_batch: Dict[str, torch.Tensor] = {}
+    ex: BatchEncoding = batch[0]
+    for key in ex.keys():
+        if 'mask' in key:
+            padding_value = 0
+        else:
+            padding_value = pad_token_id
+        whole_batch[key] = pad_sequence([x[key] for x in batch],
+                                        batch_first=True,
+                                        padding_value=padding_value)
+    source_ids, source_mask, y = \
+        whole_batch["input_ids"], whole_batch["attention_mask"], whole_batch["decoder_input_ids"]
+    if normalize:
+        y = torch.from_numpy(normalize.transform(y)).to(y)
+    return {'input_ids': source_ids, 'attention_mask': source_mask,
+            'labels': y}
+
+
+def CalMSELoss(model_output: PredictionOutput, scaler: Optional[MinMaxScaler] = None) -> Dict[str, float]:
+    predictions: np.ndarray = model_output.predictions # type: ignore
+    label_ids: np.ndarray = model_output.label_ids # type: ignore
+    loss_unscaled: float = ((predictions - label_ids)**2).mean().item()
+    if scaler:
+        predictions = scaler.inverse_transform(predictions)
+        label_ids = scaler.inverse_transform(label_ids)
+    loss: float = ((predictions - label_ids)**2).mean().item()
+    return {'mse_loss': loss, 'mse_loss_unscaled':loss_unscaled}
+
+def AccuracyMetrics(model_output: PredictionOutput) -> Dict[str, float]:
+    label_ids: np.ndarray = model_output.label_ids # type: ignore
+    predictions: np.ndarray = model_output.predictions # type: ignore
+    correct: int = np.all(predictions==label_ids, 1).sum()
+    return {'accuracy': correct/len(predictions)}
+
+def F1_AUCMetrics(model_output: PredictionOutput) -> Dict[str, float]:
+    label_ids: np.ndarray = model_output.label_ids # type: ignore
+    predictions: np.ndarray = model_output.predictions # type: ignore
+    if predictions.shape[-1] == 2: # only for binary classification
+        pred_ids: np.ndarray = np.argmax(predictions, axis=-1).reshape(label_ids.shape)
+        correct: int = np.all(pred_ids==label_ids, 1).sum()
+        f1: float = f1_score(label_ids, pred_ids)
+        onehot: np.ndarray = np.eye(2)[label_ids.reshape(-1).astype(int)]
+        auc: float = roc_auc_score(label_ids, predictions[:,-1])
+        return {'accuracy': correct/len(predictions), 'f1': f1, 'roc_auc': auc}
+    label_ids = label_ids.reshape(-1).astype(int)
+    correct: int = (predictions==label_ids).sum()
+    f1: float = f1_score(label_ids, predictions, average='macro') 
+    # In general, if you are working with an imbalanced dataset where all classes are 
+    # equally important, using the 'macro' average.If you want to assign greater 
+    # contribution to classes with more examples in the dataset, then use 'weighted'.
+    return {'accuracy': correct/len(predictions), 'f1': f1}
+
+def random_split(data, train_ratio, test_ratio, seed):
+    '''
+    Performs random splitting based on a given ratio for the training, validation, and test sets. 
+        data: file that contains the dataset
+            (type: pandas dataframe or csv)
+        train_ratio: size of the training set
+            (type: float)
+        test_ratio : size of the test set 
+            (type: float)
+        seed: the seed you want each run to hold
+            (type: int)
+        Returns: 3 pandas dataframe 
+        
+        example for an 8:1:1 splitting:
+            train, val, test = random_split(dataset, 0.8, 0.1, 42)
+        *This is a slightly modified version of sklearn's train_test_split function*
+    '''
+    np.random.seed(seed)
+    shuffle_data = np.random.permutation(len(data))
+    train_indices = shuffle_data[:int(len(data)*train_ratio)]
+    val_indices = shuffle_data[int(len(data)*train_ratio):int(len(data)*(1.0-test_ratio))]
+    test_indices = shuffle_data[int(len(data)*(1.0-test_ratio)):]
+    return data.iloc[train_indices], data.iloc[val_indices], data.iloc[test_indices]
