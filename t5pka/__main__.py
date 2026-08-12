@@ -29,7 +29,7 @@ def main(argv=None) -> int:
     """
     parser = ArgumentParser()
     parser.add_argument("-v", "--version", action="version",
-            version=f"T5Chem {__version__}",
+            version=f"T5pKa {__version__}",
             help="print version and exit")
     subparsers = parser.add_subparsers(title="subcommands")
     common = ArgumentParser(add_help=False)  # common subcommand arguments
