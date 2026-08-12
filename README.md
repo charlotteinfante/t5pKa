@@ -7,6 +7,8 @@
 
 > **Release candidate with updated dependencies:** The `tweaks` branch contains
 > T5pKa 2.0.0rc1, modernized for Python 3.11–3.12 and current package versions.
+> For reproducing results and using models from paper, use the
+> [`main` branch](https://github.com/charlotteinfante/t5pKa/tree/main).
 > For the original Python 3.9 and Torch 1.7.1 environment, use the
 > [`main` branch](https://github.com/charlotteinfante/t5pKa/tree/main).
 
